@@ -1,0 +1,5 @@
+20240529 rid=202450052901
+  url=https://nar.netkeiba.com/race/result.html?race_id=202450052901
+  table=True
+  meta={'distance': '1400m', 'track': '重', 'direction': '右', 'surface': 'ダ'}
+  title=C3三 結果・払戻 | 2024年5月29日 園田1R 地方競馬レース情報 - netkeiba

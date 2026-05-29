@@ -1,0 +1,7 @@
+ents_action_api_url = "https://nknewsapi.netkeiba.com/";
+// -->
+</script>
+<script type="text/javascript" src="https://cdn.netkeiba.com/img.newsapi.sp/common/js/contents.action.js?2019121001"></script>
+<script type="text/javascript" src="https://cdn.netkeiba.com/img.nar/common/js/jquery.cookie.js?2019121001"></script>
+<script type="text/javascript" src="https://cdn.netkeiba.com/img.nar/common/js/jquery.colorbox.js?2019121001"></script>
+<script type="text/javascript" src="https://cdn.netkeiba.com/

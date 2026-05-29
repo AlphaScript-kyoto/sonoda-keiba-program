@@ -1,0 +1,1 @@
+{'race_id': '202650052201', 'date': '20260522', 'race_no': 1, 'horse_name': 'アクイール', 'finish': 1, 'jockey': '小牧太', 'trainer': '尾林幸二', 'weight': '493(+3)', 'odds': '1.7'}

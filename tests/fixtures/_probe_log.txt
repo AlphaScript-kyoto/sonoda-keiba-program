@@ -1,0 +1,10 @@
+saved C:\Users\1180075\Desktop\プログラミング\園田特化予想プログラム\tests\fixtures\result_202650052201.html len=70316
+title=C3�� ��̡�ʧ�� | 2026ǯ5��22�� ����1R �������ϥ졼������ - netkeiba
+tables=6
+  t0 class=['RaceTable01', 'RaceCommon_Table', 'ResultRefund', 'Table_Show_All', 'ResultMain'] rows=11
+  t1 class=['Payout_Detail_Table'] rows=4
+  t2 class=['Payout_Detail_Table'] rows=4
+  t3 class=['RaceCommon_Table', 'Corner_Num'] rows=4
+  t4 class=None rows=6
+  t5 class=['RaceCommon_Table', 'Race_HaronTime'] rows=3
+race_ids=['202644052201', '202648052201', '202650052201', '202650052202', '202650052203', '202650052204', '202650052205', '202650052206', '202650052207', '202650052208', '202650052209', '202650052210', '202650052211', '202650052212']

@@ -1,0 +1,5 @@
+20180515 rid=201850051501
+  url=https://nar.netkeiba.com/race/result.html?race_id=201850051501
+  table=False
+  meta={'distance': '', 'track': '−', 'direction': '', 'surface': ''}
+  title=  |   地方競馬レース情報 - netkeiba

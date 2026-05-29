@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="EUC-JP">
+
+<!-- block=meta_tag_each_race (cp) -->
+<meta http-equiv="content-language" content="ja">
+<meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+<meta name="viewport" content="width=1000,initial-scale=1.0">
+<meta name="format-detection" content="telephone=no" />
+<meta name="description" content="2026��5��22�� ����1R C3����������������������������(NAR)������������������������������������������������������������������������������������������������������������" />
+<meta name="keywords" content="��������,������,��������,����,����,������,NAR,������,����������,netkeiba" />
+<meta name="thumbnail" content="https://www.netkeiba.com/style/netkeiba.ja/image/netkeiba.png" />
+<!-- ogp�� -->
+<meta property="og:site_name" content="netkeiba" />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="C3�� ���������� | 2026��5��22�� ����1R ������������������ - netkeiba" />
+<meta property="og:url" content="https://nar.netkeiba.com/race/result.html?race_id=202650052201" />
+<meta property="og:description" content="2026��5��22�� ����1R C3���������������������������� ������������������������������������������������������������������������������������������������������������" />
+<meta property="og:image" content="https://www.netkeiba.com/style/netkeiba.ja/image/netkeiba.png" />
+<!-- Twitter�� -->
+<meta property="twitter:card" content="summary">
+<meta property="twitter:site" content="@netkeiba">
+<!-- �������������� -->
+<link rel="canonical" href="https://nar.netkeiba.com/race/result.html?race_id=202650052201" />
+
+<link rel="alternate" media="only screen and (max-width: 640px)" href="https://nar.sp.netkeiba.com/race/race_result.html?race_id=202650052201" />
+<link rel="alternate" type="application/rss+xml" href="https://rss.netkeiba.com/?pid=rss_netkeiba&site=netkeiba" />
+<title>C3�� ���������� | 2026��5��22�� ����1R ������������������ - netkeiba</title>
+<script type="application/ld+json">
+[
+{
+"@context": "http://s

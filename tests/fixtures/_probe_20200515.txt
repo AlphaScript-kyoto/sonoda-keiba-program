@@ -1,0 +1,5 @@
+20200515 rid=202050051501
+  url=https://nar.netkeiba.com/race/result.html?race_id=202050051501
+  table=True
+  meta={'distance': '1400m', 'track': '良', 'direction': '右', 'surface': 'ダ'}
+  title=C3三 結果・払戻 | 2020年5月15日 園田1R 地方競馬レース情報 - netkeiba
