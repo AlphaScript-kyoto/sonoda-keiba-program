@@ -6,6 +6,7 @@ from typing import Optional
 import pandas as pd
 
 from config.settings import DATA_RAW_DIR
+from src.storage.csv_store import read_horses_csv
 
 
 def load_all_horse_csvs(raw_dir: Optional[Path] = None) -> pd.DataFrame:
@@ -17,7 +18,7 @@ def load_all_horse_csvs(raw_dir: Optional[Path] = None) -> pd.DataFrame:
             f"{raw_dir} に horses_*.csv がありません。"
             "先に fetch_races.py でデータを取得してください。"
         )
-    frames = [pd.read_csv(p, dtype=str) for p in paths]
+    frames = [read_horses_csv(p) for p in paths]
     return pd.concat(frames, ignore_index=True)
 
 

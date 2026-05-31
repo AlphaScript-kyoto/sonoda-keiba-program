@@ -16,6 +16,7 @@ from config.settings import (
     HORSES_FEATURES_PATH,
     HORSES_MASTER_PATH,
 )
+from src.storage.csv_store import read_horses_csv
 
 FEATURE_COLUMNS = [
     "days_since_last",
@@ -34,7 +35,7 @@ def load_raw_horses(raw_dir: Optional[Path] = None) -> pd.DataFrame:
     paths = sorted(raw_dir.glob("horses_*.csv"))
     if not paths:
         raise FileNotFoundError(f"{raw_dir} に horses_*.csv がありません")
-    frames = [pd.read_csv(p, dtype=str) for p in paths]
+    frames = [read_horses_csv(p) for p in paths]
     df = pd.concat(frames, ignore_index=True)
     df["finish"] = pd.to_numeric(df["finish"], errors="coerce")
     df["date_dt"] = pd.to_datetime(df["date"], format="%Y%m%d", errors="coerce")
