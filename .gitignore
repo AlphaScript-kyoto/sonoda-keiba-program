@@ -9,6 +9,7 @@ venv/
 # Data (再取得可能)
 data/raw/*.csv
 data/processed/*.csv
+data/processed/payback_cache.json
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 

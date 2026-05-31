@@ -3,7 +3,9 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-from src.scraper.client import fetch_race_result_html
+import requests
+
+from src.scraper.client import NetkeibaBlockedError, fetch_race_result_html
 from src.scraper.date_range import iter_dates, list_dates
 from src.scraper.parser import parse_race_result
 from src.scraper.race_list import list_race_ids_for_date
@@ -22,11 +24,15 @@ class DayFetchResult:
     csv_path: str | None = None
     skipped: bool = False
     resumed: bool = False
+    failed: bool = False
+    error: str | None = None
 
 
 @dataclass
 class RangeFetchResult:
     days: List[DayFetchResult] = field(default_factory=list)
+    stopped: bool = False
+    stop_reason: str | None = None
 
     @property
     def total_races(self) -> int:
@@ -70,7 +76,13 @@ def fetch_day(
     all_rows: List[Dict[str, Any]] = []
 
     for race_id in race_ids:
-        html = fetch_race_result_html(race_id)
+        try:
+            html = fetch_race_result_html(race_id)
+        except NetkeibaBlockedError:
+            raise
+        except requests.RequestException as exc:
+            print(f"  WARN: {race_id} 取得失敗 ({exc})", flush=True)
+            continue
         rows = parse_race_result(html, race_id)
         all_rows.extend(rows)
 
@@ -99,11 +111,25 @@ def fetch_range(
     for i, day in enumerate(days, start=1):
         if log_progress:
             print(f"[{i}/{total}] {day} ...", flush=True)
-        day_result = fetch_day(day, save_csv=save_csv, skip_existing=skip_existing)
+        try:
+            day_result = fetch_day(day, save_csv=save_csv, skip_existing=skip_existing)
+        except NetkeibaBlockedError as exc:
+            day_result = DayFetchResult(date=day, failed=True, error=str(exc))
+            out.days.append(day_result)
+            out.stopped = True
+            out.stop_reason = str(exc)
+            if log_progress:
+                print(f"  STOP: HTTP 400 を検知 — 自動停止 ({exc})", flush=True)
+                print("  24時間程度空けてから再開してください。", flush=True)
+            break
+        except requests.RequestException as exc:
+            day_result = DayFetchResult(date=day, failed=True, error=str(exc))
         out.days.append(day_result)
 
         if log_progress:
-            if day_result.resumed:
+            if day_result.failed:
+                print(f"  ERROR: 取得失敗 ({day_result.error})", flush=True)
+            elif day_result.resumed:
                 print(f"  skip (既存 CSV)", flush=True)
             elif day_result.skipped:
                 print(f"  skip (園田開催なし)", flush=True)
@@ -115,11 +141,14 @@ def fetch_range(
                 )
 
     if log_progress:
-        print(
-            f"\n完了: 開催 {out.active_days}日, "
-            f"スキップ {out.skipped_days}日, "
-            f"計 {out.total_races}R / {out.total_horses}頭",
-            flush=True,
-        )
+        if out.stopped:
+            print(f"\n中断: 通信制限の可能性 ({out.stop_reason})", flush=True)
+        else:
+            print(
+                f"\n完了: 開催 {out.active_days}日, "
+                f"スキップ {out.skipped_days}日, "
+                f"計 {out.total_races}R / {out.total_horses}頭",
+                flush=True,
+            )
 
     return out

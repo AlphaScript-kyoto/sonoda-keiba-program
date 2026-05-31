@@ -11,7 +11,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from config import scrape_range
-from config.settings import HORSES_MASTER_PATH, REQUEST_INTERVAL_SEC
+from config.settings import (
+    HORSES_MASTER_PATH,
+    REQUEST_INTERVAL_MAX_SEC,
+    REQUEST_INTERVAL_MIN_SEC,
+    REQUEST_MAX_PER_HOUR,
+)
 from src.features.build_features import build_and_save_all
 from src.scraper.fetcher import fetch_range
 
@@ -37,7 +42,10 @@ def main() -> None:
         pass
     log("=== refresh_all 開始 ===")
     log(f"期間: {scrape_range.DATE_FROM} ～ {scrape_range.DATE_TO}")
-    log(f"リクエスト間隔: {REQUEST_INTERVAL_SEC} 秒")
+    log(
+        f"リクエスト間隔: {REQUEST_INTERVAL_MIN_SEC}～{REQUEST_INTERVAL_MAX_SEC} 秒, "
+        f"上限 {REQUEST_MAX_PER_HOUR}/時間"
+    )
 
     log("STEP 1/2: netkeiba から raw CSV 更新（新列が無い日のみ再取得）")
     fetch_range(

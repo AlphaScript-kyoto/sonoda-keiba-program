@@ -87,10 +87,17 @@ def _fetch_one_day(date_yyyymmdd: str, save: bool) -> None:
 
 
 def _fetch_period(date_from: str, date_to: str, save: bool) -> None:
-    from config.settings import REQUEST_INTERVAL_SEC
+    from config.settings import (
+        REQUEST_INTERVAL_MAX_SEC,
+        REQUEST_INTERVAL_MIN_SEC,
+        REQUEST_MAX_PER_HOUR,
+    )
 
     print(f"=== 期間 {date_from} ～ {date_to} ===")
-    print(f"待機: {REQUEST_INTERVAL_SEC} 秒/リクエスト（config/settings.py）")
+    print(
+        f"待機: {REQUEST_INTERVAL_MIN_SEC}～{REQUEST_INTERVAL_MAX_SEC} 秒/リクエスト, "
+        f"上限 {REQUEST_MAX_PER_HOUR}/時間（config/settings.py）"
+    )
     fetch_range(date_from, date_to, save_csv=save, skip_existing=True, log_progress=True)
 
 

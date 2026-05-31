@@ -1,18 +1,81 @@
 """netkeiba への HTTP リクエスト。"""
 
+import random
 import time
-from typing import Optional
+from typing import Dict, List, Optional
 
 import requests
 
 from config.settings import (
-    REQUEST_INTERVAL_SEC,
+    NAR_BASE_URL,
+    REQUEST_INTERVAL_MAX_SEC,
+    REQUEST_INTERVAL_MIN_SEC,
+    REQUEST_MAX_PER_HOUR,
     REQUEST_TIMEOUT_SEC,
     URL_RESULT,
     USER_AGENT,
 )
 
 _last_request_at: float = 0.0
+_next_interval_sec: float = 0.0
+_MAX_RETRIES = 3
+_RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+_HOURLY_WINDOW_SEC = 3600.0
+
+
+class NetkeibaBlockedError(requests.HTTPError):
+    """通信制限等で netkeiba が HTTP 400 を返した場合。"""
+
+
+class _HourlyRateLimiter:
+    """直近1時間のリクエスト数を制限する。"""
+
+    def __init__(self, max_per_hour: int) -> None:
+        self._max = max_per_hour
+        self._times: List[float] = []
+
+    def wait_if_needed(self) -> None:
+        now = time.monotonic()
+        self._times = [t for t in self._times if now - t < _HOURLY_WINDOW_SEC]
+        if len(self._times) < self._max:
+            return
+
+        sleep_for = _HOURLY_WINDOW_SEC - (now - self._times[0]) + 0.1
+        if sleep_for > 0:
+            print(
+                f"  待機: 1時間リクエスト上限 ({self._max}/h) ... {sleep_for:.0f}秒",
+                flush=True,
+            )
+            time.sleep(sleep_for)
+
+        now = time.monotonic()
+        self._times = [t for t in self._times if now - t < _HOURLY_WINDOW_SEC]
+
+    def record(self) -> None:
+        self._times.append(time.monotonic())
+
+
+_hourly_limiter = _HourlyRateLimiter(REQUEST_MAX_PER_HOUR)
+
+
+def build_request_headers(*, referer: Optional[str] = None) -> Dict[str, str]:
+    """ブラウザに近いリクエストヘッダーを返す。"""
+    return {
+        "User-Agent": USER_AGENT,
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;q=0.9,"
+            "image/avif,image/webp,image/apng,*/*;q=0.8"
+        ),
+        "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": referer or f"{NAR_BASE_URL}/",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+
+def _pick_interval() -> float:
+    return random.uniform(REQUEST_INTERVAL_MIN_SEC, REQUEST_INTERVAL_MAX_SEC)
 
 
 def _detect_encoding(response: requests.Response) -> str:
@@ -33,23 +96,49 @@ def _detect_encoding(response: requests.Response) -> str:
 
 def fetch_html(url: str, *, respect_interval: bool = True) -> str:
     """URL から HTML を取得する。"""
-    global _last_request_at
+    global _last_request_at, _next_interval_sec
 
-    if respect_interval:
-        elapsed = time.monotonic() - _last_request_at
-        if elapsed < REQUEST_INTERVAL_SEC:
-            time.sleep(REQUEST_INTERVAL_SEC - elapsed)
+    last_error: Optional[requests.RequestException] = None
+    for attempt in range(_MAX_RETRIES):
+        _hourly_limiter.wait_if_needed()
 
-    response = requests.get(
-        url,
-        headers={"User-Agent": USER_AGENT},
-        timeout=REQUEST_TIMEOUT_SEC,
-    )
-    response.raise_for_status()
-    response.encoding = _detect_encoding(response)
+        if respect_interval and _last_request_at > 0:
+            elapsed = time.monotonic() - _last_request_at
+            if elapsed < _next_interval_sec:
+                time.sleep(_next_interval_sec - elapsed)
 
-    _last_request_at = time.monotonic()
-    return response.text
+        try:
+            response = requests.get(
+                url,
+                headers=build_request_headers(),
+                timeout=REQUEST_TIMEOUT_SEC,
+            )
+            _hourly_limiter.record()
+
+            if response.status_code == 400:
+                raise NetkeibaBlockedError(
+                    f"400 Client Error: 通信制限の可能性 ({response.url})",
+                    response=response,
+                )
+            if response.status_code in _RETRY_STATUS_CODES:
+                raise requests.HTTPError(
+                    f"{response.status_code} Client Error",
+                    response=response,
+                )
+            response.raise_for_status()
+            response.encoding = _detect_encoding(response)
+            _last_request_at = time.monotonic()
+            _next_interval_sec = _pick_interval()
+            return response.text
+        except NetkeibaBlockedError:
+            raise
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt + 1 < _MAX_RETRIES:
+                time.sleep(REQUEST_INTERVAL_MAX_SEC * (attempt + 1))
+
+    assert last_error is not None
+    raise last_error
 
 
 def fetch_race_result_html(race_id: str) -> str:
