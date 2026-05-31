@@ -95,7 +95,8 @@ def test_bet_plan_includes_bets_when_high():
     plan = build_race_bet_plan(race)
     assert plan.confidence == "高"
     assert plan.exotic_confidence == "高"
-    assert plan.race_profile == "堅"
+    assert plan.win_profile == "堅"
+    assert plan.exotic_profile == "堅"
     assert plan.sanrenpuku is not None
     assert plan.sanrentan is not None
     assert plan.wide is not None
@@ -114,11 +115,52 @@ def test_upset_profile_uses_box():
     race["odds"] = [4.0, 5.0, 10.0, 15.0, 20.0, 30.0]
     race["head_count"] = 12
     plan = build_race_bet_plan(race)
-    assert plan.race_profile == "荒"
+    assert plan.win_profile == "荒"
+    assert plan.exotic_profile == "荒"
     assert plan.sanrenpuku is None
     assert plan.sanrenpuku_box is not None
     assert plan.sanrenpuku_box.points >= 10
     assert plan.sanrentan is None
+    assert plan.wide is not None
+    assert plan.wide.points == 3
+
+
+def test_split_win_firm_exotic_upset():
+    """混戦(score3)・1番人気2.8倍: 単勝は買う、三連系はBOX。"""
+    race = _sample_race([0.83, 0.18, 0.10, 0.08, 0.06, 0.05])
+    race["odds"] = [2.8, 4.0, 6.0, 10.0, 15.0, 20.0]
+    race["head_count"] = 10
+    plan = build_race_bet_plan(race)
+    assert plan.win_profile == "堅"
+    assert plan.exotic_profile == "荒"
+    assert plan.confidence == "高"
+    assert plan.sanrenpuku is None
+    assert plan.sanrenpuku_box is not None
+
+
+def test_volatile_firm_uses_wide_upset():
+    """12頭・堅い三連系でもワイドは拡張。"""
+    probs = [0.90, 0.05, 0.02, 0.01, 0.005, 0.005, 0.005, 0.005, 0.005, 0.005, 0.005, 0.005]
+    rows = []
+    for i, p in enumerate(probs, start=1):
+        rows.append(
+            {
+                "race_id": "r1",
+                "race_no": 1,
+                "race_name": "テスト",
+                "umaban": str(i),
+                "horse_name": f"馬{i}",
+                "rank_pred": i,
+                "win_prob": p,
+                "odds": 1.8 if i == 1 else float(i * 3),
+            }
+        )
+    race = pd.DataFrame(rows)
+    race["head_count"] = 12
+    plan = build_race_bet_plan(race)
+    assert plan.win_profile == "堅"
+    assert plan.exotic_profile == "堅"
+    assert plan.sanrenpuku is not None
     assert plan.wide is not None
     assert plan.wide.points == 3
 
@@ -128,7 +170,7 @@ def test_sanrenpuku_box_hit():
     top5 = race.sort_values("rank_pred").head(5)
     box = build_sanrenpuku_box(top5, race)
     assert check_sanrenpuku_box_hit(box, ["1", "2", "3"])
-    assert not check_sanrenpuku_box_hit(box, ["2", "3", "4"])
+    assert not check_sanrenpuku_box_hit(box, ["2", "3", "6"])
 
 
 def test_hit_checks():

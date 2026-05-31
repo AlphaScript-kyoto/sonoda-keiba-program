@@ -70,7 +70,19 @@ class BetStrategyConfig:
 
     fav_odds_upset: float = 3.0
     upset_score_min: int = 3
+    upset_box_core: int = 4
     upset_longshot_count: int = 2
+    skip_win_on_upset: bool = True
+    # 単勝用プロファイル（厳しめ: 見送り判定）
+    win_fav_odds_skip: float = 3.0
+    win_upset_score_min: int = 4
+    win_prob_gap_max: float = 0.65
+    win_fav_soft: float = 2.5
+    # 三連系用プロファイル（広め: BOX切替）
+    exotic_head_min: int = 12
+    exotic_odds_std_min: float = 88.0
+    exotic_upset_classes: tuple = ("C1", "C2", "C3", "B2")
+    exotic_class_score_min: int = 2
     exotic_firm: ConfidenceThresholds = DEFAULT_EXOTIC_FIRM_THRESHOLDS
     exotic_upset: ConfidenceThresholds = DEFAULT_EXOTIC_UPSET_THRESHOLDS
     win: ConfidenceThresholds = DEFAULT_WIN_THRESHOLDS
@@ -152,7 +164,9 @@ class RaceBetPlan:
     win_prob_top: float
     prob_gap: float
     marks: List[Tuple[str, str, str]]
-    race_profile: str = "堅"
+    win_profile: str = "堅"
+    exotic_profile: str = "堅"
+    race_profile: str = "堅"  # exotic_profile のエイリアス（後方互換）
     exotic_confidence: str = "通常"
     fav_odds: float = 0.0
     sanrenpuku: Optional[SanrenpukuNagashi] = None
@@ -232,11 +246,17 @@ def _head_count(scored_race: pd.DataFrame) -> int:
     return len(scored_race)
 
 
+def _odds_series(scored_race: pd.DataFrame) -> pd.Series:
+    return pd.to_numeric(scored_race.get("odds", pd.Series(dtype=float)), errors="coerce")
+
+
 def compute_upset_score(
     fav_odds: float,
     prob_gap: float,
     head_count: int,
     win_prob_top: float,
+    *,
+    odds_std: float = 0.0,
 ) -> int:
     score = 0
     if fav_odds >= 3.0:
@@ -247,7 +267,107 @@ def compute_upset_score(
         score += 1
     if win_prob_top < 0.88:
         score += 1
+    # オッズのばらつき（園田では std 80+ が荒れ寄り）
+    if odds_std >= 88.0:
+        score += 1
     return score
+
+
+def _race_class(scored_race: pd.DataFrame) -> str:
+    if "race_class" in scored_race.columns:
+        val = str(scored_race["race_class"].iloc[0]).strip()
+        if val and val.lower() != "nan":
+            return val
+    return ""
+
+
+@dataclass(frozen=True)
+class RaceSignals:
+    """堅/荒判定に使うレース指標。"""
+
+    fav_odds: float
+    head_count: int
+    odds_std: float
+    prob_gap: float
+    win_prob_top: float
+    upset_score: int
+    race_class: str
+
+
+def collect_race_signals(
+    scored_race: pd.DataFrame,
+    win_prob_top: float,
+    prob_gap: float,
+) -> RaceSignals:
+    fav = _fav_odds(scored_race)
+    head = _head_count(scored_race)
+    odds = _odds_series(scored_race).dropna()
+    odds_std = float(odds.std()) if len(odds) >= 2 else 0.0
+    score = compute_upset_score(
+        fav, prob_gap, head, win_prob_top, odds_std=odds_std,
+    )
+    return RaceSignals(
+        fav_odds=fav,
+        head_count=head,
+        odds_std=odds_std,
+        prob_gap=prob_gap,
+        win_prob_top=win_prob_top,
+        upset_score=score,
+        race_class=_race_class(scored_race),
+    )
+
+
+def detect_win_profile(
+    signals: RaceSignals,
+    strategy: BetStrategyConfig = DEFAULT_STRATEGY,
+) -> str:
+    """単勝向け堅/荒。荒=単勝見送り候補（厳しめ判定）。"""
+    if signals.fav_odds >= strategy.win_fav_odds_skip:
+        return "荒"
+    if (
+        signals.upset_score >= strategy.win_upset_score_min
+        and signals.fav_odds >= strategy.win_fav_soft
+        and signals.prob_gap <= strategy.win_prob_gap_max
+    ):
+        return "荒"
+    return "堅"
+
+
+def detect_exotic_profile(
+    signals: RaceSignals,
+    strategy: BetStrategyConfig = DEFAULT_STRATEGY,
+) -> str:
+    """三連系向け堅/荒。荒=BOX・三連単見送り（流し↔BOXの切替）。"""
+    if signals.fav_odds >= strategy.fav_odds_upset:
+        return "荒"
+    if signals.upset_score >= 4:
+        return "荒"
+    if (
+        signals.upset_score >= strategy.upset_score_min
+        and signals.fav_odds >= strategy.win_fav_soft
+        and signals.prob_gap <= 0.70
+    ):
+        return "荒"
+    return "堅"
+
+
+def is_volatile_race(
+    signals: RaceSignals,
+    strategy: BetStrategyConfig = DEFAULT_STRATEGY,
+) -> bool:
+    """三連系のワイド拡張・穴馬選定用（BOX切替とは別）。"""
+    if signals.head_count >= strategy.exotic_head_min:
+        return True
+    if signals.odds_std >= strategy.exotic_odds_std_min:
+        return True
+    cls = signals.race_class.upper()
+    if (
+        cls
+        and any(cls.startswith(c) for c in strategy.exotic_upset_classes)
+        and signals.upset_score >= strategy.exotic_class_score_min
+    ):
+        return True
+    return False
 
 
 def detect_race_profile(
@@ -256,13 +376,36 @@ def detect_race_profile(
     prob_gap: float,
     strategy: BetStrategyConfig = DEFAULT_STRATEGY,
 ) -> Tuple[str, float, int]:
-    """レースプロファイル（堅/荒）と1番人気オッズ・upset_scoreを返す。"""
-    fav = _fav_odds(scored_race)
-    head = _head_count(scored_race)
-    score = compute_upset_score(fav, prob_gap, head, win_prob_top)
-    if fav >= strategy.fav_odds_upset or score >= strategy.upset_score_min:
-        return "荒", fav, score
-    return "堅", fav, score
+    """後方互換: exotic_profile と同義。"""
+    sig = collect_race_signals(scored_race, win_prob_top, prob_gap)
+    return detect_exotic_profile(sig, strategy), sig.fav_odds, sig.upset_score
+
+
+def _pick_exotic_longshots(
+    scored_race: pd.DataFrame,
+    core_umaban: set[str],
+    count: int,
+) -> pd.DataFrame:
+    """三連複BOX用の穴馬。オッズ穴とモデル中位を混在させる。"""
+    if count <= 0:
+        return scored_race.iloc[0:0]
+
+    rest = scored_race[
+        ~scored_race["umaban"].astype(str).isin(core_umaban)
+    ].copy()
+    if rest.empty:
+        return rest.iloc[0:0]
+
+    rest["odds_n"] = pd.to_numeric(rest.get("odds", pd.Series(dtype=float)), errors="coerce")
+    rest["rank_n"] = pd.to_numeric(rest.get("rank_pred", pd.Series(dtype=float)), errors="coerce")
+
+    by_odds = rest.nlargest(max(1, (count + 1) // 2), "odds_n")
+    remaining = rest[~rest.index.isin(by_odds.index)]
+    model_pool = remaining.nsmallest(count, "rank_n") if not remaining.empty else remaining
+    picked = pd.concat([by_odds, model_pool], ignore_index=False).drop_duplicates(
+        subset=["umaban"]
+    )
+    return picked.head(count)
 
 
 def build_sanrenpuku_nagashi(top5: pd.DataFrame) -> Optional[SanrenpukuNagashi]:
@@ -289,18 +432,18 @@ def build_sanrenpuku_box(
     top5: pd.DataFrame,
     scored_race: pd.DataFrame,
     *,
+    core_count: int = 5,
     extra_longshots: int = 0,
 ) -> Optional[SanrenpukuBox]:
-    """予想上位＋任意で穴馬を足した三連複BOX。"""
+    """予想上位 core_count 頭＋任意で穴馬を足した三連複BOX。"""
     if len(top5) < 3:
         return None
 
-    horses = top5.copy()
+    core_n = max(3, min(core_count, len(top5)))
+    horses = top5.iloc[:core_n].copy()
     selected_u = {str(u) for u in horses["umaban"]}
     if extra_longshots > 0:
-        rest = scored_race[~scored_race["umaban"].astype(str).isin(selected_u)].copy()
-        rest["odds_n"] = pd.to_numeric(rest.get("odds", pd.Series(dtype=float)), errors="coerce")
-        longs = rest.nlargest(extra_longshots, "odds_n")
+        longs = _pick_exotic_longshots(scored_race, selected_u, extra_longshots)
         if not longs.empty:
             horses = pd.concat([horses, longs], ignore_index=True)
 
@@ -381,8 +524,10 @@ def build_race_bet_plan(
     ]
 
     win_high, p1, gap = is_high_confidence(scored_race, win_th)
-    profile, fav, _ = detect_race_profile(scored_race, p1, gap, st)
-    exotic_th = st.exotic_upset if profile == "荒" else st.exotic_firm
+    signals = collect_race_signals(scored_race, p1, gap)
+    win_profile = detect_win_profile(signals, st)
+    exotic_profile = detect_exotic_profile(signals, st)
+    exotic_th = st.exotic_upset if exotic_profile == "荒" else st.exotic_firm
     exotic_high = matches_threshold(p1, gap, exotic_th)
 
     plan = RaceBetPlan(
@@ -391,24 +536,34 @@ def build_race_bet_plan(
         race_name=race_name,
         confidence="高" if win_high else "通常",
         exotic_confidence="高" if exotic_high else "通常",
-        race_profile=profile,
-        fav_odds=fav,
+        win_profile=win_profile,
+        exotic_profile=exotic_profile,
+        race_profile=exotic_profile,
+        fav_odds=signals.fav_odds,
         win_prob_top=p1,
         prob_gap=gap,
         marks=marks,
     )
 
+    if win_profile == "荒" and st.skip_win_on_upset and win_high:
+        plan.confidence = "通常（荒れ・単勝見送り）"
+
     if not exotic_high:
         return plan
 
-    if profile == "堅":
+    if exotic_profile == "堅":
         plan.sanrenpuku = build_sanrenpuku_nagashi(top5)
         plan.sanrentan = build_sanrentan_formation(top5)
-        plan.wide = build_wide_formation(top5)
+        plan.wide = (
+            build_wide_formation_upset(top5)
+            if is_volatile_race(signals, st)
+            else build_wide_formation(top5)
+        )
     else:
         plan.sanrenpuku_box = build_sanrenpuku_box(
             top5,
             scored_race,
+            core_count=st.upset_box_core,
             extra_longshots=st.upset_longshot_count,
         )
         plan.wide = build_wide_formation_upset(top5)

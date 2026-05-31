@@ -23,7 +23,10 @@ from src.predictor.bets import (
     check_sanrenpuku_hit,
     check_sanrentan_hit,
     check_wide_hits,
-    detect_race_profile,
+    detect_exotic_profile,
+    detect_win_profile,
+    collect_race_signals,
+    is_volatile_race,
     is_high_confidence,
     matches_threshold,
 )
@@ -76,7 +79,7 @@ class BacktestReport:
     to_date: str
     race_count: int
     thresholds: ConfidenceThresholds = field(default_factory=ConfidenceThresholds)
-    win_pick: BetTypeResult = field(default_factory=lambda: BetTypeResult("単勝◎"))
+    win_pick: BetTypeResult = field(default_factory=lambda: BetTypeResult("単勝◎(堅のみ)"))
     place_pick: BetTypeResult = field(default_factory=lambda: BetTypeResult("複勝◎"))
     sanrenpuku: BetTypeResult = field(
         default_factory=lambda: BetTypeResult("三連複(自信度高)")
@@ -118,7 +121,10 @@ class _RaceRecord:
     wide_upset_return_yen: int
     fuku3_yen: int
     tan3_yen: int
+    win_profile: str = "堅"
+    exotic_profile: str = "堅"
     race_profile: str = "堅"
+    is_volatile: bool = False
     exotic_high: bool = False
     win_high: bool = False
 
@@ -211,7 +217,10 @@ def _collect_race_records(
 
             top5 = assign_marks(pred_group)
             win_high, p1, gap = is_high_confidence(pred_group, strategy.win)
-            profile, _, _ = detect_race_profile(pred_group, p1, gap, strategy)
+            signals = collect_race_signals(pred_group, p1, gap)
+            win_profile = detect_win_profile(signals, strategy)
+            exotic_profile = detect_exotic_profile(signals, strategy)
+            volatile = is_volatile_race(signals, strategy)
             top = pred_group.sort_values("rank_pred").iloc[0]
             pred_u = str(top["umaban"])
             race_no = int(pred_group["race_no"].iloc[0])
@@ -225,7 +234,10 @@ def _collect_race_records(
 
             nagashi = build_sanrenpuku_nagashi(top5)
             box = build_sanrenpuku_box(
-                top5, pred_group, extra_longshots=strategy.upset_longshot_count
+                top5,
+                pred_group,
+                core_count=strategy.upset_box_core,
+                extra_longshots=strategy.upset_longshot_count,
             )
             formation = build_sanrentan_formation(top5)
             wide_firm = build_wide_formation(top5)
@@ -236,6 +248,8 @@ def _collect_race_records(
             st_hit = check_sanrentan_hit(formation, finish) if formation else False
             wd_firm_ret = 0
             wd_upset_ret = 0
+            wd_firm_hit = False
+            wd_upset_hit = False
             if wide_firm:
                 firm_hits = check_wide_hits(wide_firm, finish)
                 wd_firm_hit = len(firm_hits) > 0
@@ -273,7 +287,10 @@ def _collect_race_records(
                     wide_upset_return_yen=wd_upset_ret,
                     fuku3_yen=pb.fuku3_yen if pb else 0,
                     tan3_yen=pb.tan3_yen if pb else 0,
-                    race_profile=profile,
+                    win_profile=win_profile,
+                    exotic_profile=exotic_profile,
+                    race_profile=exotic_profile,
+                    is_volatile=volatile,
                     exotic_high=False,
                     win_high=win_high,
                 )
@@ -286,7 +303,7 @@ def _collect_race_records(
 def _exotic_high_for_record(
     rec: _RaceRecord, strategy: BetStrategyConfig = DEFAULT_STRATEGY
 ) -> bool:
-    th = strategy.exotic_upset if rec.race_profile == "荒" else strategy.exotic_firm
+    th = strategy.exotic_upset if rec.exotic_profile == "荒" else strategy.exotic_firm
     return matches_threshold(rec.win_prob_top, rec.prob_gap, th)
 
 
@@ -323,12 +340,14 @@ def _aggregate_records(
             prob_gap=rec.prob_gap,
         )
 
-        report.win_pick.races += 1
-        report.win_pick.points += 1
-        report.win_pick.investment += BET_UNIT
-        if rec.win_hit:
-            report.win_pick.hits += 1
-            report.win_pick.return_yen += rec.win_payout
+        skip_win = rec.win_profile == "荒" and strategy.skip_win_on_upset
+        if not skip_win:
+            report.win_pick.races += 1
+            report.win_pick.points += 1
+            report.win_pick.investment += BET_UNIT
+            if rec.win_hit:
+                report.win_pick.hits += 1
+                report.win_pick.return_yen += rec.win_payout
 
         report.place_pick.races += 1
         report.place_pick.points += 1
@@ -338,13 +357,19 @@ def _aggregate_records(
             report.place_pick.return_yen += rec.place_payout
 
         if exotic_high:
-            if rec.race_profile == "堅":
+            if rec.exotic_profile == "堅":
                 sp_pts = rec.sanrenpuku_points
                 sp_hit = rec.sanrenpuku_hit
                 st_pts = rec.sanrentan_points
                 st_hit = rec.sanrentan_hit
-                wd_pts = rec.wide_firm_points
-                wd_hit = rec.wide_firm_hit
+                if rec.is_volatile:
+                    wd_pts = rec.wide_upset_points
+                    wd_hit = rec.wide_upset_hit
+                    wd_return = rec.wide_upset_return_yen
+                else:
+                    wd_pts = rec.wide_firm_points
+                    wd_hit = rec.wide_firm_hit
+                    wd_return = rec.wide_firm_return_yen
             else:
                 sp_pts = rec.sanrenpuku_box_points
                 sp_hit = rec.sanrenpuku_box_hit
@@ -352,6 +377,7 @@ def _aggregate_records(
                 st_hit = False
                 wd_pts = rec.wide_upset_points
                 wd_hit = rec.wide_upset_hit
+                wd_return = rec.wide_upset_return_yen
 
             if sp_pts:
                 row.sanrenpuku_hit = sp_hit
@@ -378,10 +404,7 @@ def _aggregate_records(
                 report.wide.investment += wd_pts * BET_UNIT
                 if wd_hit:
                     report.wide.hits += 1
-                    if rec.race_profile == "堅":
-                        report.wide.return_yen += rec.wide_firm_return_yen
-                    else:
-                        report.wide.return_yen += rec.wide_upset_return_yen
+                    report.wide.return_yen += wd_return
 
         report.rows.append(row)
 
@@ -395,6 +418,7 @@ def backtest_period(
     *,
     fetch_payback: bool = False,
     thresholds: Optional[ConfidenceThresholds] = None,
+    strategy: BetStrategyConfig = DEFAULT_STRATEGY,
     records: Optional[List[_RaceRecord]] = None,
     config: Optional[ScoringConfig] = None,
 ) -> BacktestReport:
@@ -414,9 +438,11 @@ def backtest_period(
 
         race_ids = sorted(hist["race_id"].astype(str).unique().tolist())
         paybacks = _load_paybacks_for_races(race_ids, fetch_missing=fetch_payback)
-        records = _collect_race_records(from_yyyymmdd, to_yyyymmdd, master, paybacks, cfg)
+        records = _collect_race_records(
+            from_yyyymmdd, to_yyyymmdd, master, paybacks, cfg, strategy
+        )
 
-    return _aggregate_records(records, from_yyyymmdd, to_yyyymmdd, th)
+    return _aggregate_records(records, from_yyyymmdd, to_yyyymmdd, th, strategy)
 
 
 @dataclass

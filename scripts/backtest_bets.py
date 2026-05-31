@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.predictor.backtest import backtest_period, tune_confidence_thresholds
-from src.predictor.bets import ConfidenceThresholds, DEFAULT_THRESHOLDS
+from src.predictor.bets import ConfidenceThresholds, DEFAULT_WIN_THRESHOLDS
 from src.scraper.client import NetkeibaBlockedError
 
 
@@ -91,25 +91,25 @@ def main() -> None:
     parser.add_argument(
         "--min-win-prob",
         type=float,
-        default=DEFAULT_THRESHOLDS.win_prob,
-        help=f"自信度「高」の勝率閾値（既定 {DEFAULT_THRESHOLDS.win_prob}）",
+        default=DEFAULT_WIN_THRESHOLDS.win_prob,
+        help=f"自信度「高」の勝率閾値（既定 {DEFAULT_WIN_THRESHOLDS.win_prob}）",
     )
     parser.add_argument(
         "--min-win-prob-alt",
         type=float,
-        default=DEFAULT_THRESHOLDS.win_prob_alt,
-        help=f"代替勝率閾値（既定 {DEFAULT_THRESHOLDS.win_prob_alt}）",
+        default=DEFAULT_WIN_THRESHOLDS.win_prob_alt,
+        help=f"代替勝率閾値（既定 {DEFAULT_WIN_THRESHOLDS.win_prob_alt}）",
     )
     parser.add_argument(
         "--min-gap",
         type=float,
-        default=DEFAULT_THRESHOLDS.prob_gap,
-        help=f"1-2位勝率差閾値（既定 {DEFAULT_THRESHOLDS.prob_gap}）",
+        default=DEFAULT_WIN_THRESHOLDS.prob_gap,
+        help=f"1-2位勝率差閾値（既定 {DEFAULT_WIN_THRESHOLDS.prob_gap}）",
     )
     parser.add_argument(
         "--conf-mode",
         choices=["or", "and", "strict"],
-        default=DEFAULT_THRESHOLDS.mode,
+        default=DEFAULT_WIN_THRESHOLDS.mode,
         help="自信度判定モード（or/and/strict）",
     )
     parser.add_argument(
@@ -138,7 +138,8 @@ def main() -> None:
                   f"--min-gap {best.prob_gap} --conf-mode {best.mode}")
         return
 
-    print(f"自信度「高」: {thresholds.label()}")
+    print(f"自信度「高」(単勝): {thresholds.label()}")
+    print("三連系: 堅=1軸流し / 荒=BOX+穴  (券種別閾値)")
     print("予想: マスタの出走データで再現（過去レースは出馬表相当・特徴量リークなし）")
     if args.fetch_payback:
         print("払戻: 未取得分を netkeiba から取得（通信制限に注意）")

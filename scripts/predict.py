@@ -53,9 +53,10 @@ def _print_predictions(df) -> None:
         cols = [c for c in show_cols if c in view.columns]
         print(view[cols].to_string(index=False))
 
-        if plan and plan.confidence == "高":
+        if plan and (plan.confidence == "高" or "見送り" in plan.confidence or plan.exotic_confidence == "高"):
             print(
-                f"【自信度: 高】 [{plan.race_profile}] 1番人気{plan.fav_odds:.1f}倍 "
+                f"【{plan.confidence}】 [単勝:{plan.win_profile} / 三連:{plan.exotic_profile}] "
+                f"1番人気{plan.fav_odds:.1f}倍 "
                 f"1位勝率 {plan.win_prob_top:.1%} (1-2位差 {plan.prob_gap:.1%})"
             )
             if plan.exotic_confidence == "高":
