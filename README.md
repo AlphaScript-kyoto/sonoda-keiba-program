@@ -1,11 +1,17 @@
-# 園田特化予想プログラム
+# sonoda-keiba-program
 
-園田競馬（netkeiba 地方競馬）のレースデータ取得・CSV保存・簡易予想を行うプロジェクトです。
+園田競馬（netkeiba 地方競馬）のレースデータ取得・CSV保存・予想・馬券戦略を行うプロジェクトです。
 
 ## セットアップ
 
 ```powershell
-cd "c:\Users\1180075\Desktop\プログラミング\園田特化予想プログラム"
+# GitHub から取得する場合（リポジトリ名 = フォルダ名 sonoda-keiba-program）
+git clone <repo-url>
+cd sonoda-keiba-program
+
+# 既にローカルにある場合（例: オリジナル PC）
+# cd "C:\Users\1180075\Desktop\プログラミング\sonoda-keiba-program"
+
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
@@ -45,7 +51,7 @@ python scripts/predict.py
 ## netkeiba 利用上の注意
 
 - 個人の学習・研究目的での利用を想定しています
-- リクエスト間隔は `config/settings.py` の `REQUEST_INTERVAL_SEC`（既定 **2.0 秒**）を守ってください
+- リクエスト間隔は `config/settings.py` の `REQUEST_INTERVAL_MIN_SEC`～`MAX_SEC`（既定 **7～10 秒**）を守ってください
 - 一括取得は数時間かかります。中断しても同日の CSV があれば `--save` 時にスキップされます
 - 取得データは必ず主催者発表と照合してください
 
@@ -97,3 +103,12 @@ python scripts/fetch_races.py --save
 2. [x] 開催日単位の一括取得
 3. [x] CSV 保存
 4. [ ] 過去データによる勝率予想
+
+## 開発者向け（出先 PC / 新規 Cursor セッション）
+
+会話履歴は端末間で引き継がれないことがある。**続きから作業するときは以下を読む:**
+
+- [`AGENTS.md`](AGENTS.md) … Cursor Agent 向けクイックスタート
+- [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) … 馬券戦略・重み・バックテスト数値・データ要件・TODO
+
+データ（`horses_master.csv`, `payback_cache.json` 等）は `.gitignore` のため GitHub 以外（iCloud 等）から `data/` を配置すること。

@@ -1,0 +1,18 @@
+---
+description: 園田競馬プロジェクトの現状・馬券戦略・データ要件
+alwaysApply: true
+---
+
+# プロジェクトコンテキスト
+
+作業前に **docs/PROJECT_STATUS.md** を読む。AGENTS.md にクイックスタートあり。
+
+## 要点
+
+- 馬券ロジック: src/predictor/bets.py（単勝/三連系プロファイル分離済み）
+- デフォルト重み: config/tuned_weights.json（style）
+- データ（master, payback_cache）は .gitignore — GitHub のみでは不足
+- 荒れ: 単勝見送り、三連複 top4+穴2 BOX（20点）
+- バックテスト: scripts/backtest_bets.py
+
+詳細は docs/PROJECT_STATUS.md を参照。
