@@ -9,6 +9,8 @@ from typing import List, Optional, Tuple
 
 import pandas as pd
 
+from src.features.utils import parse_distance_m
+
 
 @dataclass(frozen=True)
 class ConfidenceThresholds:
@@ -73,6 +75,7 @@ class BetStrategyConfig:
     upset_box_core: int = 4
     upset_longshot_count: int = 2
     skip_win_on_upset: bool = True
+    skip_place_on_upset: bool = True
     # 単勝用プロファイル（厳しめ: 見送り判定）
     win_fav_odds_skip: float = 3.0
     win_upset_score_min: int = 4
@@ -83,6 +86,8 @@ class BetStrategyConfig:
     exotic_odds_std_min: float = 88.0
     exotic_upset_classes: tuple = ("C1", "C2", "C3", "B2")
     exotic_class_score_min: int = 2
+    exotic_dist_min_m: float = 1700.0
+    exotic_dist_score_min: int = 2
     exotic_firm: ConfidenceThresholds = DEFAULT_EXOTIC_FIRM_THRESHOLDS
     exotic_upset: ConfidenceThresholds = DEFAULT_EXOTIC_UPSET_THRESHOLDS
     win: ConfidenceThresholds = DEFAULT_WIN_THRESHOLDS
@@ -292,6 +297,35 @@ class RaceSignals:
     win_prob_top: float
     upset_score: int
     race_class: str
+    distance_m: float
+
+
+def _race_distance_m(scored_race: pd.DataFrame) -> float:
+    if "distance" not in scored_race.columns:
+        return float("nan")
+    val = parse_distance_m(scored_race["distance"].iloc[0])
+    return float(val) if val == val else float("nan")
+
+
+def _is_lower_class(race_class: str, classes: tuple) -> bool:
+    cls = race_class.upper()
+    return bool(cls) and any(cls.startswith(c) for c in classes)
+
+
+def _class_upset_signal(signals: RaceSignals, strategy: BetStrategyConfig) -> bool:
+    return (
+        _is_lower_class(signals.race_class, strategy.exotic_upset_classes)
+        and signals.upset_score >= strategy.exotic_class_score_min
+    )
+
+
+def _distance_upset_signal(signals: RaceSignals, strategy: BetStrategyConfig) -> bool:
+    if signals.distance_m != signals.distance_m:  # NaN
+        return False
+    return (
+        signals.distance_m >= strategy.exotic_dist_min_m
+        and signals.upset_score >= strategy.exotic_dist_score_min
+    )
 
 
 def collect_race_signals(
@@ -314,6 +348,7 @@ def collect_race_signals(
         win_prob_top=win_prob_top,
         upset_score=score,
         race_class=_race_class(scored_race),
+        distance_m=_race_distance_m(scored_race),
     )
 
 
@@ -329,6 +364,10 @@ def detect_win_profile(
         and signals.fav_odds >= strategy.win_fav_soft
         and signals.prob_gap <= strategy.win_prob_gap_max
     ):
+        return "荒"
+    if _class_upset_signal(signals, strategy):
+        return "荒"
+    if _distance_upset_signal(signals, strategy):
         return "荒"
     return "堅"
 
@@ -347,6 +386,10 @@ def detect_exotic_profile(
         and signals.fav_odds >= strategy.win_fav_soft
         and signals.prob_gap <= 0.70
     ):
+        return "荒"
+    if _class_upset_signal(signals, strategy):
+        return "荒"
+    if _distance_upset_signal(signals, strategy):
         return "荒"
     return "堅"
 

@@ -158,7 +158,7 @@ def main() -> None:
         sys.exit(1)
 
     print(f"\n対象: {report.race_count}レース")
-    print("\n--- 回収率（全レース: 単勝・複勝 / 自信度「高」のみ: 三連系） ---")
+    print("\n--- 回収率（単勝・複勝◎ / 荒レースは単勝・複勝見送り / 自信度「高」のみ: 三連系） ---")
     _print_bet_result(report.win_pick)
     _print_bet_result(report.place_pick)
     _print_bet_result(report.sanrenpuku)

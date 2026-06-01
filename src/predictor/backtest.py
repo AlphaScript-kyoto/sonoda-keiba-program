@@ -349,12 +349,14 @@ def _aggregate_records(
                 report.win_pick.hits += 1
                 report.win_pick.return_yen += rec.win_payout
 
-        report.place_pick.races += 1
-        report.place_pick.points += 1
-        report.place_pick.investment += BET_UNIT
-        if rec.place_hit:
-            report.place_pick.hits += 1
-            report.place_pick.return_yen += rec.place_payout
+        skip_place = rec.win_profile == "荒" and strategy.skip_place_on_upset
+        if not skip_place:
+            report.place_pick.races += 1
+            report.place_pick.points += 1
+            report.place_pick.investment += BET_UNIT
+            if rec.place_hit:
+                report.place_pick.hits += 1
+                report.place_pick.return_yen += rec.place_payout
 
         if exotic_high:
             if rec.exotic_profile == "堅":

@@ -67,6 +67,12 @@ def main() -> None:
     )
     parser.add_argument("--may-from", default="20260501")
     parser.add_argument("--may-to", default="20260531")
+    parser.add_argument(
+        "--objective",
+        choices=("win", "top3", "sanrenpuku"),
+        default="win",
+        help="探索目的（sanrenpuku=3着内率優先+三連複ROI再選定）",
+    )
     args = parser.parse_args()
 
     reference = args.reference_date or date.today().strftime("%Y%m%d")
@@ -92,17 +98,27 @@ def main() -> None:
         print("\n[2] 保存済み tuned_weights.json を使用")
         tuned_caches = train_caches
     else:
-        print(f"\n[2] ローリング学習期間 重み探索（正規化 z-score / {args.n_iter}試行）...")
+        print(f"\n[2] ローリング学習期間 重み探索（正規化 z-score / {args.n_iter}試行 / {args.objective}）...")
         refined, tuned_caches, _ = tune_and_refine_for_reference(
-            reference, n_iter=args.n_iter, master=master
+            reference,
+            n_iter=args.n_iter,
+            master=master,
+            objective=args.objective,
+            val_from=args.may_from if args.objective == "sanrenpuku" else None,
+            val_to=args.may_to if args.objective == "sanrenpuku" else None,
         )
         tuned = refined.config
-        tuned.save()
+        save_name = (
+            "config/tuned_weights_sanrenpuku.json"
+            if args.objective == "sanrenpuku"
+            else "config/tuned_weights.json"
+        )
+        tuned.save(ROOT / save_name)
         print(
             f"  探索後: 1着 {refined.win_hit_rate:.1%} / "
             f"3着内 {refined.top3_hit_rate:.1%} ({refined.races}R)"
         )
-        print("  保存: config/tuned_weights.json")
+        print(f"  保存: {save_name}")
 
     set_scoring_config(tuned)
     _print_eval("正規化 + チューニング後", _fast_eval_on_caches(tuned_caches, tuned))
@@ -118,6 +134,10 @@ def main() -> None:
     _print_backtest("正規化 + チューニング", backtest_period(
         args.may_from, args.may_to, master=master, config=tuned
     ))
+    if args.objective == "sanrenpuku":
+        set_scoring_config(tuned)
+        sp = backtest_period(args.may_from, args.may_to, master=master, config=tuned)
+        print(f"  三連複回収率: {sp.sanrenpuku.roi:.1%} ({sp.sanrenpuku.hits}/{sp.sanrenpuku.races})")
 
     print("\n[4] 採用重み（正規化 + チューニング）")
     print(f"  market_weight: {tuned.market_weight}")

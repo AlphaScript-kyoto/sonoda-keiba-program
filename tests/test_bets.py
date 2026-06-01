@@ -9,8 +9,14 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.predictor.bets import (
+    BetStrategyConfig,
     ConfidenceThresholds,
+    DEFAULT_STRATEGY,
+    assign_marks,
     build_race_bet_plan,
+    collect_race_signals,
+    detect_exotic_profile,
+    detect_win_profile,
     build_sanrenpuku_box,
     build_sanrenpuku_nagashi,
     build_sanrentan_formation,
@@ -106,6 +112,7 @@ def test_bet_plan_includes_bets_when_high():
 
 def test_win_confidence_with_old_thresholds():
     race = _sample_race([0.35, 0.20, 0.15, 0.10, 0.08, 0.07])
+    race["odds"] = [2.0, 4.0, 6.0, 10.0, 15.0, 20.0]
     plan = build_race_bet_plan(race, OLD_THRESHOLDS)
     assert plan.confidence == "高"
 
@@ -127,9 +134,9 @@ def test_upset_profile_uses_box():
 
 def test_split_win_firm_exotic_upset():
     """混戦(score3)・1番人気2.8倍: 単勝は買う、三連系はBOX。"""
-    race = _sample_race([0.83, 0.18, 0.10, 0.08, 0.06, 0.05])
+    race = _sample_race([0.87, 0.23, 0.10, 0.08, 0.06, 0.05])
     race["odds"] = [2.8, 4.0, 6.0, 10.0, 15.0, 20.0]
-    race["head_count"] = 10
+    race["head_count"] = 12
     plan = build_race_bet_plan(race)
     assert plan.win_profile == "堅"
     assert plan.exotic_profile == "荒"
@@ -171,6 +178,30 @@ def test_sanrenpuku_box_hit():
     box = build_sanrenpuku_box(top5, race)
     assert check_sanrenpuku_box_hit(box, ["1", "2", "3"])
     assert not check_sanrenpuku_box_hit(box, ["2", "3", "6"])
+
+
+def test_class_upset_profile():
+    """下位クラス + upset_score>=2 → 荒。"""
+    race = _sample_race([0.85, 0.08, 0.04, 0.02, 0.005, 0.005])
+    race["odds"] = [2.0, 5.0, 8.0, 12.0, 20.0, 30.0]
+    race["head_count"] = 12
+    race["race_class"] = "C2"
+    race["distance"] = "1400m"
+    signals = collect_race_signals(race, 0.85, 0.77)
+    assert signals.upset_score >= 2
+    assert detect_exotic_profile(signals) == "荒"
+
+
+def test_distance_upset_profile():
+    """1700m+ + upset_score>=2 → 荒。"""
+    race = _sample_race([0.85, 0.06, 0.04, 0.02, 0.015, 0.015])
+    race["odds"] = [2.0, 5.0, 8.0, 12.0, 20.0, 30.0]
+    race["head_count"] = 12
+    race["race_class"] = "B1"
+    race["distance"] = "1870m"
+    signals = collect_race_signals(race, 0.85, 0.79)
+    assert signals.upset_score >= 2
+    assert detect_exotic_profile(signals) == "荒"
 
 
 def test_hit_checks():

@@ -39,6 +39,59 @@ class TuneResult:
     races: int
 
 
+def _compare_tune_results(
+    candidate: TuneResult,
+    best: Optional[TuneResult],
+    objective: str,
+) -> bool:
+    """candidate が best より良いか。"""
+    if best is None:
+        return True
+    if objective in ("sanrenpuku", "top3"):
+        return candidate.top3_hit_rate > best.top3_hit_rate or (
+            candidate.top3_hit_rate == best.top3_hit_rate
+            and candidate.win_hit_rate > best.win_hit_rate
+        )
+    return candidate.win_hit_rate > best.win_hit_rate or (
+        candidate.win_hit_rate == best.win_hit_rate
+        and candidate.top3_hit_rate > best.top3_hit_rate
+    )
+
+
+def _sort_tune_results(results: List[TuneResult], objective: str) -> List[TuneResult]:
+    key = (
+        (lambda r: (r.top3_hit_rate, r.win_hit_rate))
+        if objective in ("sanrenpuku", "top3")
+        else (lambda r: (r.win_hit_rate, r.top3_hit_rate))
+    )
+    return sorted(results, key=key, reverse=True)
+
+
+def refine_by_sanrenpuku_roi(
+    results: List[TuneResult],
+    master: pd.DataFrame,
+    val_from: str,
+    val_to: str,
+    *,
+    top_n: int = 10,
+) -> Tuple[TuneResult, float]:
+    """学習上位候補を三連複回収率で再選定。"""
+    from src.predictor.backtest import backtest_period
+    from src.predictor.score import set_scoring_config
+
+    candidates = _sort_tune_results(results, "sanrenpuku")[:top_n]
+    best = candidates[0]
+    best_roi = -1.0
+    for res in candidates:
+        set_scoring_config(res.config)
+        report = backtest_period(val_from, val_to, master=master, config=res.config)
+        roi = report.sanrenpuku.roi
+        if roi > best_roi:
+            best_roi = roi
+            best = res
+    return best, best_roi
+
+
 def _prepare_enriched_races(
     master: pd.DataFrame,
     from_date: str,
@@ -275,6 +328,7 @@ def tune_weights_random_search(
     ref_date: Optional[str] = None,
     half_life_days: int = 730,
     base_config: Optional[ScoringConfig] = None,
+    objective: str = "win",
 ) -> Tuple[List[TuneResult], List[RaceCache]]:
     master = master if master is not None else load_master()
     base = base_config or ScoringConfig()
@@ -306,12 +360,10 @@ def tune_weights_random_search(
         )
         res = evaluate_config_on_caches(caches, cfg, weighted=weighted_metric, feature_names=names)
         results.append(res)
-        if best is None or res.win_hit_rate > best.win_hit_rate or (
-            res.win_hit_rate == best.win_hit_rate and res.top3_hit_rate > best.top3_hit_rate
-        ):
+        if _compare_tune_results(res, best, objective):
             best = res
 
-    results.sort(key=lambda r: (r.win_hit_rate, r.top3_hit_rate), reverse=True)
+    results = _sort_tune_results(results, objective)
     return results, caches
 
 
@@ -323,6 +375,7 @@ def tune_weights_coordinate(
     max_rounds: int = 2,
     weighted: bool = False,
     feature_names: Optional[List[str]] = None,
+    objective: str = "win",
 ) -> TuneResult:
     names = feature_names or feature_names_for(start)
     market_candidates = market_candidates or [0.8, 1.0, 1.2, 1.5, 2.0, 2.5, 3.0]
@@ -339,15 +392,14 @@ def tune_weights_coordinate(
                 win_rate, top3_rate, total = _eval_weight_vector(
                     caches, trial, mw, weighted=weighted
                 )
-                if win_rate > best.win_hit_rate or (
-                    win_rate == best.win_hit_rate and top3_rate > best.top3_hit_rate
-                ):
-                    best = TuneResult(
-                        config=_vectors_to_config(trial, mw, names, base=best.config),
-                        win_hit_rate=win_rate,
-                        top3_hit_rate=top3_rate,
-                        races=total,
-                    )
+                candidate = TuneResult(
+                    config=_vectors_to_config(trial, mw, names, base=best.config),
+                    win_hit_rate=win_rate,
+                    top3_hit_rate=top3_rate,
+                    races=total,
+                )
+                if _compare_tune_results(candidate, best, objective):
+                    best = candidate
                     vec = trial.copy()
                     improved = True
 
@@ -355,15 +407,14 @@ def tune_weights_coordinate(
             win_rate, top3_rate, total = _eval_weight_vector(
                 caches, vec, m, weighted=weighted
             )
-            if win_rate > best.win_hit_rate or (
-                win_rate == best.win_hit_rate and top3_rate > best.top3_hit_rate
-            ):
-                best = TuneResult(
-                    config=_vectors_to_config(vec, m, names, base=best.config),
-                    win_hit_rate=win_rate,
-                    top3_hit_rate=top3_rate,
-                    races=total,
-                )
+            candidate = TuneResult(
+                config=_vectors_to_config(vec, m, names, base=best.config),
+                win_hit_rate=win_rate,
+                top3_hit_rate=top3_rate,
+                races=total,
+            )
+            if _compare_tune_results(candidate, best, objective):
+                best = candidate
                 mw = m
                 improved = True
 
@@ -411,6 +462,9 @@ def tune_and_refine_for_reference(
     master: Optional[pd.DataFrame] = None,
     seed: int = 42,
     base_config: Optional[ScoringConfig] = None,
+    objective: str = "win",
+    val_from: Optional[str] = None,
+    val_to: Optional[str] = None,
 ) -> Tuple[TuneResult, List[RaceCache], List[Tuple[str, str]]]:
     """2年前・1年前・当年YTD で重みを探索し、結果とキャッシュを返す。"""
     ranges = get_training_ranges(reference_date)
@@ -422,6 +476,14 @@ def tune_and_refine_for_reference(
         seed=seed,
         master=master,
         base_config=base,
+        objective=objective,
     )
-    refined = tune_weights_coordinate(caches, results[0].config, feature_names=names)
+    refined = tune_weights_coordinate(
+        caches, results[0].config, feature_names=names, objective=objective
+    )
+    if objective == "sanrenpuku" and val_from and val_to and master is not None:
+        pool = results[:10] + [refined]
+        refined, _ = refine_by_sanrenpuku_roi(
+            pool, master, val_from, val_to, top_n=len(pool)
+        )
     return refined, caches, ranges

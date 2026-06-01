@@ -1,4 +1,4 @@
-# プロジェクト現状メモ（2026-05 時点）
+# プロジェクト現状メモ（2026-06 時点）
 
 出先 PC や新しい Cursor セッション向け。**会話履歴が無くてもここを読めば続きが分かる**。
 
@@ -64,20 +64,43 @@
 - 1位勝率 < 0.88 → +1
 - odds_std >= 88 → +1
 
+### クラス・距離（detect_win_profile / detect_exotic_profile 共通）
+
+- 下位クラス（C1/C2/C3/B2）かつ upset_score >= 2 → 荒
+- 1700m 以上かつ upset_score >= 2 → 荒
+
+### 複勝
+
+- **荒レース（win_profile == 荒）は複勝◎も見送り**（`skip_place_on_upset=True`）
+
 ---
 
 ## 3. スコアリング重み
 
 | ファイル | 説明 |
 |---------|------|
-| **config/tuned_weights.json** | **デフォルト（style 重み）** |
+| **config/tuned_weights.json** | **デフォルト（style 重み）— 採用中** |
+| config/tuned_weights_sanrenpuku.json | 三連複ROI目的チューニング（2026-06。**未採用・要検証**） |
 | config/tuned_weights_style.json | style のバックアップ |
-| config/tuned_weights_walkforward.json | walkforward 版（2026 三連複 ROI は style より劣る） |
+| config/tuned_weights_walkforward.json | walkforward 版 |
 | config/tuned_weights_domain.json | 脚質+園田ドメイン（比較用） |
+
+### 三連複ROIチューニング結果（参考・5月のみ）
+
+`scripts/tune_weights.py --objective sanrenpuku --reference-date 20260430`
+
+| 重み | 5月 三連複回収率 | 備考 |
+|------|-----------------|------|
+| style（現行） | **85.7%** | compare_models.log（脚質のみ） |
+| sanrenpuku 新重み | **61.4%** | 5月で再選定したが style より劣る |
+
+→ **5月だけ見て採用しないこと。** 下記「次にやること」で 1〜5月通しを評価する。
 
 ---
 
-## 4. バックテスト参考値（style 重み + 現行馬券戦略）
+## 4. バックテスト参考値
+
+### 旧ロジック（§4 以前・複勝見送りなし等）
 
 | 期間 | 単勝(堅のみ) | 三連複 | 三連単 | ワイド |
 |------|-------------|--------|--------|--------|
@@ -85,8 +108,22 @@
 | 2026/1-5 | 54.3% / 89.5% | 42.9% / 72.6% | 9.8% / 66.0% | 69.9% / 68.8% |
 | 2025 通年 | 48.0% / 83.4% | 40.0% / 74.8% | 8.9% / 70.9% | 64.9% / 76.2% |
 
+### 新ロジック（複勝・単勝荒見送り + クラス/距離堅荒）— 2026/5 のみ
+
+`backtest_place_skip.log`（style 重み・現行デフォルト）
+
+| 券種 | 回収率 |
+|------|--------|
+| 単勝◎(堅のみ) | 95.9%（114R） |
+| 複勝◎ | 91.8%（114R） |
+| 三連複 | 66.5%（124R） |
+| 三連単 | 125.3%（109R） |
+| ワイド | 71.1%（124R） |
+
+※ 旧 §4 表とは馬券ロジックが異なるため直接比較不可。
+
 ```powershell
-python scripts/backtest_bets.py --from 20260301 --to 20260531
+python scripts/backtest_bets.py --from 20260101 --to 20260531
 ```
 
 payback キャッシュが無い場合は `--fetch-payback`（数時間かかる）。
@@ -100,8 +137,8 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 | **必須** | data/processed/horses_master.csv | 予想・評価の本体 |
 | **必須** | data/processed/payback_cache.json | バックテスト払戻 |
 | 推奨 | data/raw/*.csv | 特徴量再生成 |
-| 推奨 | data/processed/race_style_cache.json | 脚質キャッシュ |
-| 任意 | data/processed/race_lap_cache.json | ラップ（未完成 ~263/2154） |
+| **Git あり** | data/processed/race_style_cache.json | 脚質キャッシュ（**3756件完了 2026-06**） |
+| 任意 | data/processed/race_lap_cache.json | ラップ（取得可能 263件のみ。2026/04 以降の園田） |
 
 ---
 
@@ -113,10 +150,9 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 | python scripts/build_features.py | 特徴量 → master 更新 |
 | python scripts/predict.py --date YYYYMMDD | 予想 + 馬券案 |
 | python scripts/backtest_bets.py --from ... --to ... | 馬券バックテスト |
-| python scripts/tune_weights.py | 重みチューニング |
+| python scripts/tune_weights.py --objective sanrenpuku | 三連複ROI向け重み探索 |
+| python scripts/compare_models.py --skip-tune | 3モデル比較（保存済み重み） |
 | python scripts/walkforward_tune.py | ウォークフォワード再チューニング |
-| python scripts/analyze_profile_features.py | 堅/荒特徴量比較 |
-| python scripts/analyze_upset_races.py | 高配当レース分析 |
 | python scripts/backfill_race_meta.py | 脚質・ラップキャッシュ |
 
 ---
@@ -124,19 +160,57 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 ## 7. 分析メモ（堅 vs 荒）
 
 - 印外勝ち: 堅 10.3% → 荒 12.5%
-- 有効: 1番人気>=3.0, head>=12, gap<=0.65, odds_std>=88, 下位クラス
+- 有効: 1番人気>=3.0, head>=12, gap<=0.65, odds_std>=88, 下位クラス, 1700m+
 - 無効: top3_prob_sum, odds_spread
-- distance 列が master で 0 のまま
 
 ---
 
-## 8. 未完了・次の候補
+## 8. 次にやること（優先順）
 
-- ラップキャッシュのバックフィル完了
-- 三連複 ROI 目的の重みチューニング
-- クラス・距離を堅/荒判定に組み込み
-- 複勝の荒れ見送り検討
-- domain モデル本格比較（lap 完了後）
+### 必須（次セッション最初）
+
+1. **脚質を master に反映**
+   ```powershell
+   .\.venv\Scripts\python.exe scripts/build_features.py
+   ```
+   脚質キャッシュは 3756 件揃ったが、`horses_master.csv` への反映は未実行の可能性大。
+
+2. **2026/1〜5 バックテスト（初見評価）**
+   - 5月だけのチューニング結果に過学習しないため、**通期で判断**
+   ```powershell
+   .\.venv\Scripts\python.exe scripts/backtest_bets.py --from 20260101 --to 20260531
+   ```
+
+3. **style vs sanrenpuku 重みの A/B 比較**
+   - 現行: `config/tuned_weights.json`（style）
+   - 新: `config/tuned_weights_sanrenpuku.json`（ScoringConfig.load または `--weights` 相当で切替要確認）
+   - 5月 sanrenpuku は 61.4% と style 85.7% より劣る → **1〜5月通しで再確認してから採用判断**
+
+### 推奨（過学習チェック）
+
+4. **期間分割バックテスト**
+   ```powershell
+   .\.venv\Scripts\python.exe scripts/backtest_bets.py --from 20260101 --to 20260331
+   .\.venv\Scripts\python.exe scripts/backtest_bets.py --from 20260401 --to 20260531
+   ```
+   5月だけ突出していないか確認。
+
+5. **2025 通年（真の holdout）**
+   ```powershell
+   .\.venv\Scripts\python.exe scripts/backtest_bets.py --from 20250101 --to 20251231
+   ```
+
+### 採用判断後
+
+6. sanrenpuku 重みを採用するなら `tuned_weights.json` を上書き。採用しないなら現行 style のまま。
+7. `docs/PROJECT_STATUS.md` §4 に新ロジックの 1〜5月数値を追記。
+8. 次の開催予想: `python scripts/predict.py --date YYYYMMDD`
+
+### 注意
+
+- venv 有効化が PowerShell ポリシーで失敗する PC では `.\.venv\Scripts\python.exe` 直叩き
+- 脚質バックフィル中に JSON を読むと一時的に壊れて見える → 完了後は 3756 件で正常
+- `payback_cache.json` は .gitignore。GitHub clone だけではバックテスト不可
 
 ---
 
@@ -146,5 +220,8 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 2. 荒れ単勝見送り
 3. win_profile / exotic_profile 分離
 4. walkforward 再チューニング → style 重みをデフォルトに復帰
+5. 複勝荒見送り + クラス/距離堅荒 + `--objective sanrenpuku` 追加
+6. 脚質キャッシュ 3756 件バックフィル完了（2026-06 会社 PC）
+7. `config/tuned_weights_sanrenpuku.json` 生成（採用は未決）
 
 *大きな方針変更があったらこのファイルを更新すること。*
