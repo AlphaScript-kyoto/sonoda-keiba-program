@@ -1,4 +1,4 @@
-# Python
+# --- Python ---
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -6,14 +6,49 @@ __pycache__/
 venv/
 .env
 
-# Data (再取得可能)
+# --- Secrets / credentials (never commit) ---
+.env.local
+.env.*.local
+
+# --- Data: raw & master CSV (large, sync via iCloud etc.) ---
 data/raw/*.csv
-data/processed/*.csv
-data/processed/payback_cache.json
 !data/raw/.gitkeep
+
+data/processed/*.csv
 !data/processed/.gitkeep
 
-# IDE
+# Processed dir default ignore; whitelist only what Git tracks
+data/processed/*
+!data/processed/.gitkeep
+!data/processed/race_style_cache.json
+
+# Large / reproducible caches (not in Git)
+data/processed/payback_cache.json
+data/processed/race_lap_cache.json
+data/processed/bloodline_cache.json
+data/processed/marks_fav_exotic_cache.pkl
+data/processed/marks_fav_exotic_by_date/
+data/processed/refresh_log.txt
+
+# --- Logs & local run artifacts ---
+*.log
+*.err
+completion_email_draft.txt
+_tmp*
+_write_impl.py
+
+# --- Backups / Cursor assets ---
+_pull_backup/
+assets/
+
+# --- IDE (share tasks.json only) ---
 .idea/
-.vscode/
+.vscode/*
+!.vscode/tasks.json
 *.swp
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+Desktop.ini

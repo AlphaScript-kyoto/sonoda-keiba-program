@@ -10,7 +10,7 @@
 | 自宅 PC（2026-06） | `C:\Users\akimi\Desktop\プログラミング\sonoda-keiba-program` |
 | その他 | `git clone` 後 `cd sonoda-keiba-program` |
 
-**直近の目標:** **2026/6/3（火）園田** の当日予想を UI から実行できるようにする。
+**直近の目標:** **2026/6/3（火）園田** 当日オペ（予想 UI → note/X → 終了後データ更新）。UI・馬柱・`run_today.py` は **2026-06-02 実装済み**。
 
 ---
 
@@ -148,15 +148,17 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 
 ---
 
-## 5. データファイル（GitHub に無い → iCloud 等で持ち出し）
+## 5. データファイル
 
-| 優先度 | パス | 用途 |
-|--------|------|------|
-| **必須** | data/processed/horses_master.csv | 予想・評価の本体 |
-| **必須** | data/processed/payback_cache.json | バックテスト払戻 |
-| 推奨 | data/raw/*.csv | 特徴量再生成 |
-| **Git あり** | data/processed/race_style_cache.json | 脚質キャッシュ（**3756件完了 2026-06**） |
-| 任意 | data/processed/race_lap_cache.json | ラップ（取得可能 263件のみ。2026/04 以降の園田） |
+**Git とクラウドの分担 → `docs/DATA_AND_GIT.md`**
+
+| 優先度 | パス | Git | 同期 |
+|--------|------|-----|------|
+| **必須** | `data/processed/horses_master.csv` | 除外 | iCloud 等 |
+| **必須** | `data/processed/payback_cache.json` | 除外 | 任意 / 再取得 |
+| 推奨 | `data/raw/*.csv` | 除外 | iCloud 等 |
+| **Git 管理** | `data/processed/race_style_cache.json` | **含める** | `git pull` |
+| 任意 | `data/processed/race_lap_cache.json` | 除外 | 再取得可 |
 
 ---
 
@@ -164,9 +166,14 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 
 | コマンド | 用途 |
 |---------|------|
-| python scripts/fetch_races.py --date YYYYMMDD --save | レース取得 |
-| python scripts/build_features.py | 特徴量 → master 更新 |
-| python scripts/predict.py --date YYYYMMDD | 予想 + 馬券案 |
+| python scripts/fetch_races.py --date YYYYMMDD --save | レース結果取得（raw CSV のみ） |
+| python scripts/build_features.py | 全 raw から特徴量 → master 再生成 |
+| **`python scripts/fetch_daily.py --date YYYYMMDD`** | **取得 + master 更新を一括**（開催日の夜向け） |
+| **`python run_today.py`** | **今日の日付で `fetch_daily` 実行 + LINE 通知**（ルート） |
+| python scripts/predict.py --date YYYYMMDD | 予想 + 馬券案（CLI） |
+| `.\.venv\Scripts\python.exe -m streamlit run app/predict_app.py` | **当日予想 UI**（推奨・VS Code タスク可） |
+| `scripts/predict_ui.py` | 起動用ラッパーのみ（本体は `src/predictor/predict_ui_app.py`） |
+| `python scripts/send_line_completion.py` | 作業完了サマリを LINE 送信（任意） |
 | python scripts/backtest_bets.py --from ... --to ... | 馬券バックテスト |
 | python scripts/fetch_paybacks.py --from ... --to ... | 払戻キャッシュ拡充 |
 | python scripts/analyze_q1_collapse.py | 2026 Q1 三連複崩れ分析 |
@@ -188,41 +195,46 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 
 ## 8. 次にやること（優先順）
 
-### 完了済み（2026-06 自宅 PC）
+### 完了済み（2026-06）
 
 - style vs sanrenpuku A/B → split scoring 採用
 - 2026/1-5・期間分割・2025 通年バックテスト（split + 新三連系閾値）
-- Q1 崩れ分析・1月 payback 84R 取得（`scripts/fetch_paybacks.py`）
-- 三連系閾値 Q1 チューニング → `bets.py` + `config/exotic_thresholds.json`
-- **5月末まで master にデータあり**（ユーザー確認済み 2026-06-02）
+- Q1 崩れ分析・1月 payback 84R 取得
+- 三連系閾値 Q1 チューニング → `config/exotic_thresholds.json`
+- **5月末まで master にデータあり**（確認済み）
+- **当日予想 UI**（Streamlit）: 期待値 SS〜C、note/X コピペ、印表、馬柱、オフライン
+- **馬柱**: 印5頭×横並び（馬名 + 前走〜5走）、HTML 静的表（ダブルクリック不要）
+- **印表**: モデル確率（T=6・レース内相対）、勝率・連対率（予想日より前の園田成績）
+- **`run_today.py`**: 実行日の `fetch_daily` + LINE 成否通知
+- UI 本体を `src/predictor/predict_ui_app.py` に移動（UTF-16 化対策）
 
-### 最優先（会社 PC・次セッション）— **当日予想 UI**
+### 6/3 当日 — オペレーション（これで足りる）
 
-**現状:** UI なし。CLI の `scripts/predict.py` のみ。Web/Streamlit 等は未導入（`requirements.txt` に streamlit 等なし）。
+| 段階 | 操作 |
+|------|------|
+| オッズ確定〜1R前 | `streamlit run app/predict_app.py` → 日付 `20260603` → 予想取得 |
+| 投稿 | UI「コピー用」→ note（SS/S）/ X（A〜C）を手動公開・予約 |
+| 全R終了後 | **`python run_today.py`**（または `fetch_daily.py --date 20260603`） |
 
-**ゴール（6/3 前）:** ブラウザ or デスクトップから「日付指定 → 予想取得 → レース一覧＋馬券案」を見られること。
+**起動:**
 
-詳細仕様 → **§10 当日予想 UI** を実装の設計書として使うこと。
+```powershell
+.\.venv\Scripts\python.exe -m streamlit run app/predict_app.py
+```
 
-**会社 PC 着手前チェックリスト**
+オフライン検証: UI で `20260529` + オフラインにチェック。詳細 → **§10**。
 
-1. `git pull`（コード最新化）
-2. iCloud 等から `data/processed/horses_master.csv` を同期（5月末まで入っていること再確認）
-3. `pip install -r requirements.txt`（UI 追加時は streamlit 等を追記）
-4. 動作確認（CLI）:
-   ```powershell
-   python scripts/predict.py --date 20260603
-   ```
-   出馬表未公開なら「予想対象がありません」と出るのは正常。公開後に再実行。
-5. オフライン検証（通信なし）:
-   ```powershell
-   python scripts/predict.py --date 20260529 --offline
-   ```
+**GitHub 公開前チェックリスト**
+
+1. `data/` は .gitignore のまま（master / payback は別途同期）
+2. `.env` に `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_USER_ID`（`run_today` 用・リポジトリに含めない）
+3. `pip install -r requirements.txt`
+4. 出馬表・オッズ確定後に UI で本番日付を試す
 
 ### 任意（時間があれば）
 
 - `build_features.py` — 脚質キャッシュ 3756 件を master に未反映なら実行
-- 6/3 終了後: `fetch_races.py --date 20260603 --save` → `build_features.py` で master 更新
+- `python scripts/backfill_race_meta.py` — 馬柱のペース・通過均が充実（当日必須ではない）
 
 ### 注意
 
@@ -244,7 +256,14 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 7. style vs sanrenpuku A/B → **split scoring 採用**（style 単勝 / sanrenpuku 三連系）
 8. `scripts/analyze_q1_collapse.py` 追加、2026 Q1 崩れ分析
 9. 1月 payback 84R 取得 + 三連系閾値 Q1 チューニング（`exotic_thresholds.json`）
-10. 自宅 PC: 5月末 master 確認済み。**次: 6/3 向け当日予想 UI**（§10）
+10. 自宅 PC: 5月末 master 確認済み
+11. **当日予想 UI**（Streamlit）: `predict_day.py` + `predict_ui_app.py`
+12. **期待値・投稿**: `expectation.py` / `post_format.py` / `rationale.py`（SS/S→note 詳細、A〜C→X）
+13. **表示**: モデル確率（`DISPLAY_SOFTMAX_TEMPERATURE=6`）、勝率+連対率（`marks_display._career_rates_raw`）
+14. **馬柱**: `horse_form.py` — `build_form_matrix_for_plan` + `form_matrix_html`
+15. **UTF-16 対策**: UI 本体 `src/predictor/predict_ui_app.py`、起動は ASCII のみ `app/predict_app.py`
+16. **`run_today.py`**: 本日 `fetch_daily` + LINE（`tools/line_bot.py`）
+17. **`.editorconfig`**: charset utf-8
 
 ---
 
@@ -282,34 +301,62 @@ predict.py
 | FastAPI + 静的 HTML | 将来モバイル対応しやすい | 6/3 までの工数は増 |
 | CLI 強化のみ | 追加依存なし | ユーザー要望は「UI」 |
 
-**推奨:** `app/streamlit_app.py` または `scripts/predict_ui.py`（Streamlit 1 ファイル MVP）。
+**実装ファイル:**
 
-### 10.3 MVP 画面要件（6/3 最低限）
+| 役割 | パス |
+|------|------|
+| Streamlit 本体（**ここを編集**） | `src/predictor/predict_ui_app.py` |
+| 起動（ASCII のみ・日本語禁止） | `app/predict_app.py`, `scripts/predict_ui.py` |
+| 予想パイプライン | `src/predictor/predict_day.py` |
+| 馬柱 | `src/predictor/horse_form.py` |
+| 印表・通算率 | `src/predictor/marks_display.py` |
+| 投稿文 | `src/predictor/post_format.py`, `rationale.py` |
+| 期待値 | `src/predictor/expectation.py`, `config/expectation_tiers.json` |
 
-1. **日付入力** — デフォルト今日（`20260603`）。カレンダー or テキスト `YYYYMMDD`
-2. **「予想取得」ボタン** — `fetch_entries=True` で netkeiba 取得
-3. **進捗表示** — 「3/12R 取得中…」（`predict_date` 内ループをコールバック化するか、UI 側で race_ids を先に list して 1R ずつ取得）
-4. **レース一覧** — R 番・レース名・距離
-5. **レース詳細（折りたたみ or タブ）**
-   - 印 ◎○▲△☆ + 馬名 + 勝率 + オッズ（上位5頭）
-   - バッジ: 単勝自信度 / 三連自信度 / 単勝プロファイル（堅・荒）/ 三連プロファイル
-   - 1番人気オッズ、1位勝率、1-2位差
-   - 馬券案（自信度「高」の三連系のみ）: 三連複流し or BOX、三連単、ワイドの label 文字列
-   - 単勝・複勝「見送り」時は理由表示（`confidence` に「荒れ・単勝見送り」等）
-6. **フィルタ** — 「三連系 自信度「高」のみ」「単勝見送り除く」
-7. **エラー** — `NetkeibaBlockedError` → 「通信制限。しばらく待って再試行」
+### 10.3 MVP 画面要件 — **実装状況（2026-06-02）**
 
-**オフライン開発用:** `--offline` 相当のトグル（master 上の過去日で UI テスト）。fixture 日: `20260529`。
+| # | 要件 | 状態 |
+|---|------|------|
+| 1 | 日付入力（デフォルト今日） | ✅ |
+| 2 | 予想取得（出馬表 netkeiba） | ✅ |
+| 3 | 進捗「n/12R 取得中…」 | ✅ |
+| 4 | レース一覧（期待値ソート・折りたたみ） | ✅ |
+| 5 | 印表: 印・馬名・**モデル確率**・**勝率・連対率**・オッズ・人気 | ✅（三連予想順列は削除済み） |
+| 6 | 堅荒・自信度バッジ・1番人気・モデル確率 gap | ✅ |
+| 7 | **馬柱**（印5頭・前走〜5走・横並び HTML 表） | ✅ |
+| 8 | **コピー用** note/X（ティアで文面分岐） | ✅ |
+| 9 | フィルタ（三連高のみ・単勝見送り除く・ティア） | ✅ |
+| 10 | オフライン（master のみ） | ✅ |
+
+**印表の意味（ユーザー向けキャプション）**
+
+- **モデル確率** — レース内相対（softmax・表示のみ T=6）。馬券内部の `win_prob` は従来 T=1。
+- **勝率** — 予想日より前の園田 **1着率**。
+- **連対率** — 同条件の **2着以内率**。
+
+**馬柱セル（1走分・改行テキスト）:** 日付・園田 / クラス・着順 / 距離・走破・馬場 / 頭数・馬番・人気 / 騎手・斤量 / 通過均・上がり3F・馬体重・ペース / 着差。ペース・通過は lap/style キャッシュ未投入の古い走は欠けることがある。
+
+**オフライン:** `20260529` 推奨。
 
 ### 10.4 実装ステップ（会社 PC でこの順）
 
 | Step | 内容 | 成果物 |
 |------|------|--------|
 | 1 | `src/predictor/predict_day.py`（新規）に `run_predict_day(date, *, offline=False) -> PredictDayResult` を切り出し。dataclass で `win_df`, `exotic_df`, `plans: List[RaceBetPlan]` を返す | `predict.py` から import してリファクタ |
-| 2 | Streamlit MVP: 日付 + ボタン + plans ループ表示 | `app/predict_app.py` |
-| 3 | 進捗バー（race_ids ループを predict_day 側で generator/callback 対応） | UX 改善 |
-| 4 | スタイル（堅/荒で色分け、三連「買い」レースを上部にピン） | 任意 |
-| 5 | `requirements.txt` に `streamlit` 追加、README / §6 に起動コマンド追記 | `streamlit run app/predict_app.py` |
+| 2 | Streamlit MVP: 日付 + ボタン + plans ループ表示 | **完了** `predict_ui_app.py` |
+| 3 | 進捗バー（`on_progress` コールバック） | **完了** |
+| 4 | スタイル（堅/荒色・三連「高」を上にソート） | **完了**（簡易） |
+| 5 | `requirements.txt` に `streamlit`、§6 起動コマンド | **完了** |
+| 6 | 期待値 SS〜C + note/X コピペ | **完了** |
+| 7 | 馬柱横並び + HTML 表示 | **完了** `horse_form.py` |
+| 8 | 勝率・連対率・モデル確率表示 | **完了** `marks_display.py` / `score.py` |
+
+**期待値・投稿**
+
+- スコア: `src/predictor/expectation.py`（三連「高」ベースの暫定100点満点）
+- 閾値: `config/expectation_tiers.json`（SS≥85, S≥70, A≥55, B≥40, C=それ未満）
+- note: SS/S（展開・根拠あり）· X: A〜C（簡易印）· `post_format.format_race_copy` / `format_note_race_rich`
+- 根拠文: `src/predictor/rationale.py`（脚質・ペース・騎手など。血統は出馬表に無く当日は未使用）
 
 **起動コマンド（想定）**
 
@@ -336,15 +383,51 @@ sanrenpuku, sanrenpuku_box, sanrentan, wide  # .label 文字列で表示
 | タイミング | 操作 |
 |-----------|------|
 | 前日〜当日朝 | 出馬表・オッズ未確定なら空。焦らず待つ |
-| オッズ確定後 | UI で `20260603` → 予想取得 |
-| レース間 | オッズ変動時は再取得可（通信制限に注意） |
-| 終了後 | `fetch_races.py --date 20260603 --save` → `build_features.py` |
+| オッズ確定後〜1R前 | Streamlit: `20260603` → **予想取得** |
+| 投稿 | 各レース「コピー用」→ **note**（SS/S）/ **X**（A〜C）を手動公開・予約（自動投稿 API なし） |
+| レース間 | オッズ変動時は UI で再取得可（通信制限に注意） |
+| **全R終了後** | **`python run_today.py`**（= 本日の `fetch_daily` + LINE 通知） |
 
-**CLI フォールバック（UI 未完成時）**
+**データ更新の等价コマンド**
+
+```powershell
+# 推奨（日付自動 + LINE）
+python run_today.py
+
+# 同等（手動日付）
+python scripts/fetch_daily.py --date 20260603
+
+# 2段階でも可
+python scripts/fetch_races.py --date 20260603 --save
+python scripts/build_features.py
+```
+
+`fetch_daily` / `run_today` は **結果ページ**の取得。当日朝の予想は **出馬表**（UI の予想取得）で別ルート。当日は **`refresh_all.py` 禁止**（全期間スクレイプ・重い）。
+
+**CLI フォールバック**
 
 ```powershell
 python scripts/predict.py --date 20260603
 ```
+
+### 10.9 Windows / エンコーディング注意（重要）
+
+`scripts/predict_ui.py` や `app/predict_app.py` に **日本語を直接保存すると UTF-16 化**し、`SyntaxError: source code string cannot contain null bytes` になる事例あり（Cursor / Windows）。
+
+- **UI ロジックは必ず** `src/predictor/predict_ui_app.py`（UTF-8）に書く
+- 起動ファイルは ASCII ラッパーのみ
+- 壊れたら: `predict_ui_app.py` を UTF-8 で復元、または PowerShell で UTF-8 書き直し
+- ルート `.editorconfig` で `charset = utf-8`
+
+### 10.10 `run_today.py`（ルート）
+
+```python
+# 本日 YYYYMMDD で scripts/fetch_daily.py を subprocess 実行
+# 成功 / 失敗を tools/line_bot.send_line_message で通知
+# .env: LINE_CHANNEL_ACCESS_TOKEN, LINE_USER_ID
+```
+
+プロジェクトルートで `python run_today.py` を実行する前提（相対パス `.\.venv\Scripts\python.exe`）。
 
 ### 10.7 触らないもの（6/3 前）
 
@@ -358,6 +441,6 @@ python scripts/predict.py --date 20260603
 - 表示ロジック参考: `scripts/predict.py` の `_print_predictions`
 - Agent 共通: ルート `AGENTS.md`
 
-*UI 実装が進んだら §6 スクリプト表と §9 履歴を更新すること。*
+*最終更新: 2026-06-02（6/3 向け UI・馬柱・run_today を反映）。*
 
 *大きな方針変更があったらこのファイルを更新すること。*

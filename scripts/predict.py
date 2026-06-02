@@ -9,10 +9,13 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.predictor.bets import build_day_bet_plans, DEFAULT_STRATEGY
-from src.predictor.score import evaluate_master, load_master, predict_date, set_scoring_config
+from src.predictor.display_labels import format_race_table_for_display
+from src.predictor.marks_display import build_marks_display_frame, sort_marks
+from src.predictor.predict_day import run_predict_day_safe
+from src.predictor.score import evaluate_master, load_master
 from src.predictor.scoring_config import load_split_scoring_configs
 from src.predictor.tune_weights import tune_and_refine_for_reference
-from src.scraper.client import NetkeibaBlockedError
+from src.predictor.score import set_scoring_config
 
 
 def _print_predictions(df, exotic_df=None) -> None:
@@ -22,16 +25,12 @@ def _print_predictions(df, exotic_df=None) -> None:
 
     show_cols = [
         "mark",
-        "rank_pred",
         "umaban",
         "horse_name",
-        "score",
         "win_prob",
-        "horse_win_rate",
-        "jockey_trainer_win_rate",
-        "last3_avg_finish",
         "odds",
         "popularity",
+        "rank_pred",
     ]
     plans = {
         p.race_no: p
@@ -45,17 +44,16 @@ def _print_predictions(df, exotic_df=None) -> None:
         print(f"\n--- {int(race_no)}R {race_name} {distance} ---")
 
         if plan:
-            mark_line = "  ".join(
-                f"{m}{u} {n}" for m, u, n in plan.marks
-            )
+            mark_line = "  ".join(f"{m}{u} {n}" for m, u, n in sort_marks(plan.marks))
             print(f"印: {mark_line}")
 
-        view = group.sort_values("rank_pred").head(5).copy()
         if plan:
-            mark_map = {u: m for m, u, _ in plan.marks}
-            view["mark"] = view["umaban"].astype(str).map(mark_map).fillna("")
-        cols = [c for c in show_cols if c in view.columns]
-        print(view[cols].to_string(index=False))
+            view = build_marks_display_frame(plan, df, exotic_df)
+        else:
+            view = group.sort_values("rank_pred").head(5).copy()
+        print(format_race_table_for_display(view, show_cols).to_string(index=False))
+        if plan:
+            print(f"  期待値: {plan.expectation_tier}（スコア {plan.expectation_score}）")
 
         if plan and (plan.confidence == "高" or "見送り" in plan.confidence or plan.exotic_confidence == "高"):
             print(
@@ -121,25 +119,12 @@ def main() -> None:
         print()
 
     print(f"=== 予想: {target} 園田 ===")
-    try:
-        win_cfg, ex_cfg = load_split_scoring_configs()
-        set_scoring_config(win_cfg)
-        pred = predict_date(
-            target,
-            master=master,
-            fetch_entries=not args.offline,
-            config=win_cfg,
-        )
-        pred_ex = (
-            predict_date(target, master=master, fetch_entries=False, config=ex_cfg)
-            if DEFAULT_STRATEGY.split_scoring
-            else None
-        )
-    except NetkeibaBlockedError as exc:
-        print(f"STOP: HTTP 400 — 通信制限の可能性 ({exc})")
-        sys.exit(1)
+    result = run_predict_day_safe(target, offline=args.offline, master=master)
+    if result.message and result.win_df.empty:
+        print(result.message)
+        sys.exit(1 if "通信制限" in result.message else 0)
 
-    _print_predictions(pred, pred_ex)
+    _print_predictions(result.win_df, result.exotic_df)
 
 
 if __name__ == "__main__":

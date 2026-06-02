@@ -19,6 +19,11 @@ def test_parse_shutuba_fixture():
     assert rows[0]["horse_name"] == "グランディーヴァ"
     assert rows[0]["horse_id"] == "2021102932"
     assert rows[0]["umaban"] == "1"
+    assert rows[0]["odds"] == "4.8"
+    assert rows[2]["umaban"] == "3"
+    assert rows[2]["odds"] == "80.0"
+    empty = [r for r in rows if not str(r.get("odds", "")).strip()]
+    assert not empty, f"missing odds: {empty}"
 
 
 if __name__ == "__main__":

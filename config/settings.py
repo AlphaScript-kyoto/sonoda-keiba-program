@@ -12,6 +12,7 @@ NAR_BASE_URL = "https://nar.netkeiba.com"
 URL_RACECOURSE = f"{NAR_BASE_URL}/racecourse/racecourse_page.html?jyo_cd={JYO_CD}"
 URL_RESULT = f"{NAR_BASE_URL}/race/result.html?race_id={{race_id}}"
 URL_SHUTUBA = f"{NAR_BASE_URL}/race/shutuba.html?race_id={{race_id}}"
+URL_ODDS_WIN = f"{NAR_BASE_URL}/odds/?race_id={{race_id}}&type=b1"
 
 # データ保存先
 DATA_RAW_DIR = PROJECT_ROOT / "data" / "raw"

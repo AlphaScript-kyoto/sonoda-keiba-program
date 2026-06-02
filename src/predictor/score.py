@@ -99,17 +99,39 @@ def set_scoring_config(config: ScoringConfig) -> None:
 
 
 
-def _softmax_series(s: pd.Series) -> pd.Series:
+# UI 表示用。1.0 だとスコア差で 99% 超が出やすい（オッズ・特徴量の尖り）
+DISPLAY_SOFTMAX_TEMPERATURE = 6.0
 
-    if s.notna().sum() == 0:
 
-        return pd.Series(np.nan, index=s.index)
-
-    filled = s.fillna(s.min() - 1.0)
-
-    exp = np.exp(filled - filled.max())
-
+def tempered_probabilities(scores: pd.Series, temperature: float = DISPLAY_SOFTMAX_TEMPERATURE) -> pd.Series:
+    """レース内相対確率（表示向け・温度付き softmax）。"""
+    if scores.notna().sum() == 0:
+        return pd.Series(np.nan, index=scores.index)
+    filled = pd.to_numeric(scores, errors="coerce").fillna(scores.min() - 1.0)
+    t = max(float(temperature), 1e-6)
+    z = (filled - filled.max()) / t
+    exp = np.exp(z)
     return exp / exp.sum()
+
+
+def race_display_model_probs(
+    race_df: pd.DataFrame,
+    *,
+    temperature: float = DISPLAY_SOFTMAX_TEMPERATURE,
+) -> tuple[float, float]:
+    """表示用 (1位モデル確率, 1-2位差)。"""
+    if race_df.empty or "score" not in race_df.columns:
+        return 0.0, 0.0
+    probs = tempered_probabilities(race_df["score"], temperature)
+    ordered = probs.sort_values(ascending=False)
+    top = float(ordered.iloc[0])
+    second = float(ordered.iloc[1]) if len(ordered) > 1 else 0.0
+    return top, top - second
+
+
+def _softmax_series(s: pd.Series) -> pd.Series:
+    """馬券ロジック用（従来どおり・尖りやすい）。"""
+    return tempered_probabilities(s, temperature=1.0)
 
 
 

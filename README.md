@@ -31,13 +31,24 @@ python scripts/fetch_races.py --from 20260520 --to 20260522 --save
 # 単一レース
 python scripts/fetch_races.py --race-id 202650052201 --save
 
-# 予想（CSV が溜まってから）
-python scripts/predict.py
+# 予想（CLI）
+python scripts/predict.py --date YYYYMMDD
+
+# 当日予想 UI（ブラウザ）
+.\.venv\Scripts\python.exe -m streamlit run app/predict_app.py
 ```
 
 ### 取得期間の設定
 
 `config/scrape_range.py` で開始・終了日（YYYYMMDD）を指定します。将来は最古日～最新日に変更して一括取得できます。
+
+## データと Git
+
+- **コード・設定** → GitHub（`docs/DATA_AND_GIT.md` 参照）
+- **master / raw CSV** → iCloud 等（Git には入れない）
+- **脚質キャッシュ** → `data/processed/race_style_cache.json` は Git 管理
+
+clone 後は `data/processed/horses_master.csv` をクラウドから置くこと。
 
 ## ディレクトリ構成
 

@@ -20,12 +20,15 @@ pip install -r requirements.txt
 cd "C:\Users\1180075\Desktop\プログラミング\sonoda-keiba-program"
 ```
 
-iCloud 等から `data/` をプロジェクト直下に配置（`.gitignore` 対象のため GitHub には無い）。
+iCloud 等から `data/`（**master / raw**）を配置。`race_style_cache.json` は **Git に含まれる**。
 
 ```powershell
 python scripts/predict.py --date YYYYMMDD
+.\.venv\Scripts\python.exe -m streamlit run app/predict_app.py   # 当日予想 UI
 python scripts/backtest_bets.py --from YYYYMMDD --to YYYYMMDD
 ```
+
+データ・Git の分担: **`docs/DATA_AND_GIT.md`**
 
 ## 変更時の注意
 
@@ -39,4 +42,4 @@ python scripts/backtest_bets.py --from YYYYMMDD --to YYYYMMDD
 
 設計・バックテスト数値・未完了タスク・データ要件 → **`docs/PROJECT_STATUS.md`**
 
-**次の作業（2026-06）:** §10 当日予想 UI（6/3 園田）。着手前に §8 チェックリストを実行。
+**当日予想 UI:** `app/predict_app.py`（薄い起動のみ）→ 本体は `src/predictor/predict_ui_app.py`（**UTF-8 必須**）。`scripts/predict_ui.py` は同じ起動用。**`scripts/predict_ui.py` に日本語を直接書かない**（Windows で UTF-16 化し SyntaxError になる事例あり）。

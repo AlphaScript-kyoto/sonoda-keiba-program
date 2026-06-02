@@ -179,6 +179,8 @@ class RaceBetPlan:
     sanrenpuku_box: Optional[SanrenpukuBox] = None
     sanrentan: Optional[SanrentanFormation] = None
     wide: Optional[WideFormation] = None
+    expectation_score: int = 0
+    expectation_tier: str = "C"
 
 
 def _horse_label(row: pd.Series) -> Tuple[str, str]:
@@ -597,7 +599,7 @@ def build_race_bet_plan(
         plan.confidence = "通常（荒れ・単勝見送り）"
 
     if not exotic_high:
-        return plan
+        return _finalize_plan(plan)
 
     if exotic_profile == "堅":
         plan.sanrenpuku = build_sanrenpuku_nagashi(top5)
@@ -616,7 +618,13 @@ def build_race_bet_plan(
         )
         plan.wide = build_wide_formation_upset(top5)
 
-    return plan
+    return _finalize_plan(plan)
+
+
+def _finalize_plan(plan: RaceBetPlan) -> RaceBetPlan:
+    from src.predictor.expectation import apply_expectation_to_plan
+
+    return apply_expectation_to_plan(plan)
 
 
 def build_day_bet_plans(
