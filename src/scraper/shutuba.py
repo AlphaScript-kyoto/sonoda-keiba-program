@@ -183,6 +183,7 @@ def parse_shutuba(html: str, race_id: str) -> List[Dict[str, Any]]:
                 "weather": race_meta["weather"],
                 "race_class": race_meta["race_class"],
                 "race_name": race_meta["race_name"],
+                "post_time": race_meta.get("post_time", ""),
                 "jockey": _text(jockey_a),
                 "trainer": _text(trainer_a),
             }

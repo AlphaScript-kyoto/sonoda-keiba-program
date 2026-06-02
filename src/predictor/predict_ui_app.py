@@ -150,8 +150,18 @@ def _render_results(result, win_df, exotic_df=None):
             dist_map[int(race_no)] = str(grp["distance"].iloc[0])
     for plan in shown:
         distance = dist_map.get(plan.race_no, "")
-        label = f"{plan.race_no}R {plan.race_name}　期待値{plan.expectation_tier}"
-        with st.expander(label, expanded=plan.expectation_tier in ("SS", "S")):
+        started_tag = "　発走済" if plan.is_started else ""
+        post_tag = f" {plan.post_time}" if plan.post_time else ""
+        label = (
+            f"{plan.race_no}R{post_tag} {plan.race_name}{started_tag}"
+            f"　期待値{plan.expectation_tier}"
+        )
+        expanded = (
+            not plan.is_started and plan.expectation_tier in ("SS", "S")
+        )
+        with st.expander(label, expanded=expanded):
+            if plan.is_started:
+                st.caption("発走済み — 前回取得の内容（オッズは当時のもの）")
             _render_plan_header(plan, distance, exotic_df=exotic_df)
             table = _race_rows(win_df, plan, exotic_df, master=master)
             if not table.empty:
@@ -170,12 +180,17 @@ def _render_results(result, win_df, exotic_df=None):
 def main():
     st.set_page_config(page_title="園田予想", page_icon="🏇", layout="wide")
     st.title("園田競馬 当日予想")
-    st.caption("期待値 SS/S＝note用の詳しい文 · A〜C＝X用の簡易印 · split scoring")
-    col_date, col_off, _ = st.columns([2, 1, 2])
+    st.caption(
+        "期待値 SS/S＝note用の詳しい文 · A〜C＝X用の簡易印 · split scoring · "
+        "発走済みレースは前回データを再利用（未発走のみ netkeiba 取得）"
+    )
+    col_date, col_off, col_force = st.columns([2, 1, 1])
     with col_date:
         date_input = st.text_input("予想日（YYYYMMDD）", value=date.today().strftime("%Y%m%d"))
     with col_off:
         offline = st.checkbox("オフライン（master のみ）", value=False)
+    with col_force:
+        force_refresh = st.checkbox("発走済みも再取得", value=False)
     st.checkbox("三連系 自信度「高」のみ", key="filter_exotic_high")
     st.checkbox("単勝見送りを除く", key="filter_hide_win_skip")
     st.multiselect(
@@ -197,8 +212,20 @@ def main():
             progress.progress(current / total, text=f"{current}/{total}R 取得中… ({race_id})")
             status.caption(f"取得: {race_id}")
 
+        prev = st.session_state.get("last_result")
+        cache = (
+            prev
+            if isinstance(prev, PredictDayResult) and prev.date == target and not offline
+            else None
+        )
         with st.spinner(f"{target} 園田を取得中…"):
-            result = run_predict_day_safe(target, offline=offline, on_progress=on_progress)
+            result = run_predict_day_safe(
+                target,
+                offline=offline,
+                on_progress=on_progress,
+                cache=cache,
+                force_refresh=force_refresh or offline,
+            )
         progress.empty()
         status.empty()
         if result.message and result.win_df.empty:
@@ -206,7 +233,10 @@ def main():
             return
         st.session_state["last_result"] = result
         st.session_state["last_win_df"] = result.win_df
-        st.success(f"{target} · {result.race_count}レース · {day_post_summary(result.plans)}")
+        summary = f"{target} · {result.race_count}レース · {day_post_summary(result.plans)}"
+        if result.message:
+            summary = f"{summary} · {result.message}"
+        st.success(summary)
     result = st.session_state.get("last_result")
     win_df = st.session_state.get("last_win_df")
     if result is not None and isinstance(result, PredictDayResult) and win_df is not None:

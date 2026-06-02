@@ -211,6 +211,11 @@ def parse_race_meta(html: str) -> Dict[str, str]:
 
     race_name = _text(soup.select_one(".RaceName"))
 
+    post_time = ""
+    m = re.search(r"(\d{1,2}:\d{2})\s*発走", text01)
+    if m:
+        post_time = m.group(1)
+
     return {
         "distance": distance,
         "track": track,
@@ -221,6 +226,7 @@ def parse_race_meta(html: str) -> Dict[str, str]:
         "race_condition": race_condition,
         "race_class": race_class,
         "race_name": race_name,
+        "post_time": post_time,
     }
 
 

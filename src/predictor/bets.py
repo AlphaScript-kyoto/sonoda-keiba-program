@@ -10,6 +10,7 @@ from typing import List, Optional, Tuple
 import pandas as pd
 
 from src.features.utils import parse_distance_m
+from src.predictor.race_schedule import normalize_post_time
 
 
 @dataclass(frozen=True)
@@ -181,6 +182,8 @@ class RaceBetPlan:
     wide: Optional[WideFormation] = None
     expectation_score: int = 0
     expectation_tier: str = "C"
+    post_time: str = ""
+    is_started: bool = False
 
 
 def _horse_label(row: pd.Series) -> Tuple[str, str]:
@@ -564,6 +567,9 @@ def build_race_bet_plan(
     race_id = str(scored_race["race_id"].iloc[0])
     race_no = int(scored_race["race_no"].iloc[0])
     race_name = str(scored_race.get("race_name", pd.Series([""])).iloc[0])
+    post_time = ""
+    if "post_time" in scored_race.columns:
+        post_time = normalize_post_time(scored_race["post_time"].iloc[0])
 
     top5 = assign_marks(ex_race)
     marks = [
@@ -593,6 +599,7 @@ def build_race_bet_plan(
         win_prob_top=p1,
         prob_gap=gap,
         marks=marks,
+        post_time=post_time,
     )
 
     if win_profile == "荒" and st.skip_win_on_upset and win_high:
