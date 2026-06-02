@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
 
 from src.predictor.bets import RaceBetPlan
 from src.predictor.display_labels import format_race_table_for_display
-from src.predictor.expectation import TIER_ORDER, sort_plans_by_expectation
+from src.predictor.expectation import TIER_ORDER, sort_plans_by_race_no
 from src.predictor.horse_form import build_form_matrix_for_plan, form_matrix_html, resolve_horse_ids
 from src.predictor.marks_display import build_marks_display_frame, filter_race_df
 from src.predictor.post_format import copy_channel_label, day_post_summary, format_race_copy
@@ -125,7 +125,7 @@ def _passes_filters(plan, *, exotic_only, hide_win_skip, tier_filter):
 
 
 def _render_results(result, win_df, exotic_df=None):
-    plans = sort_plans_by_expectation(result.plans)
+    plans = sort_plans_by_race_no(result.plans)
     exotic_only = st.session_state.get("filter_exotic_high", False)
     hide_win_skip = st.session_state.get("filter_hide_win_skip", False)
     tier_filter = st.session_state.get("filter_tiers", [])

@@ -114,6 +114,10 @@ def apply_expectation_to_plan(
     return plan
 
 
+def sort_plans_by_race_no(plans: List[RaceBetPlan]) -> List[RaceBetPlan]:
+    return sorted(plans, key=lambda p: p.race_no)
+
+
 def sort_plans_by_expectation(plans: List[RaceBetPlan]) -> List[RaceBetPlan]:
     return sorted(
         plans,

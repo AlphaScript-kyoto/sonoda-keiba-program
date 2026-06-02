@@ -2,17 +2,23 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "競馬アプリ起動",
+            "label": "当日予想 UI（Streamlit）",
             "type": "shell",
-            "command": ".\\.venv\\Scripts\\python.exe -m streamlit run app/predict_app.py --server.address 0.0.0.0",
+            "command": "${workspaceFolder}\\scripts\\start_predict_ui.cmd",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
             "presentation": {
                 "reveal": "always",
-                "panel": "new"
+                "panel": "dedicated",
+                "focus": true,
+                "showReuseMessage": false
             },
             "group": {
                 "kind": "build",
                 "isDefault": true
-            }
+            },
+            "problemMatcher": []
         }
     ]
 }

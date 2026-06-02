@@ -1,2 +1,11 @@
 [server]
+headless = false
+port = 8501
 showEmailPrompt = false
+
+[browser]
+gatherUsageStats = false
+serverAddress = "localhost"
+
+[logger]
+level = "info"
