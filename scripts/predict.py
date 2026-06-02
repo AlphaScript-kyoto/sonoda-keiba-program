@@ -8,13 +8,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.predictor.bets import build_day_bet_plans
+from src.predictor.bets import build_day_bet_plans, DEFAULT_STRATEGY
 from src.predictor.score import evaluate_master, load_master, predict_date, set_scoring_config
+from src.predictor.scoring_config import load_split_scoring_configs
 from src.predictor.tune_weights import tune_and_refine_for_reference
 from src.scraper.client import NetkeibaBlockedError
 
 
-def _print_predictions(df) -> None:
+def _print_predictions(df, exotic_df=None) -> None:
     if df.empty:
         print("予想対象がありません（園田開催なし、または出馬表未取得）。")
         return
@@ -32,7 +33,10 @@ def _print_predictions(df) -> None:
         "odds",
         "popularity",
     ]
-    plans = {p.race_no: p for p in build_day_bet_plans(df)}
+    plans = {
+        p.race_no: p
+        for p in build_day_bet_plans(df, exotic_scored=exotic_df, strategy=DEFAULT_STRATEGY)
+    }
 
     for race_no, group in df.groupby("race_no", sort=True):
         race_name = group["race_name"].iloc[0] if "race_name" in group.columns else ""
@@ -118,16 +122,24 @@ def main() -> None:
 
     print(f"=== 予想: {target} 園田 ===")
     try:
+        win_cfg, ex_cfg = load_split_scoring_configs()
+        set_scoring_config(win_cfg)
         pred = predict_date(
             target,
             master=master,
             fetch_entries=not args.offline,
+            config=win_cfg,
+        )
+        pred_ex = (
+            predict_date(target, master=master, fetch_entries=False, config=ex_cfg)
+            if DEFAULT_STRATEGY.split_scoring
+            else None
         )
     except NetkeibaBlockedError as exc:
         print(f"STOP: HTTP 400 — 通信制限の可能性 ({exc})")
         sys.exit(1)
 
-    _print_predictions(pred)
+    _print_predictions(pred, pred_ex)
 
 
 if __name__ == "__main__":

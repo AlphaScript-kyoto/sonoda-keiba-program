@@ -44,19 +44,19 @@ DEFAULT_WIN_THRESHOLDS = ConfidenceThresholds(
     mode="and",
 )
 
-# 三連系（堅いレース）: 1-2位差を厳しめ
+# 三連系（堅いレース）: 1-2位差をやや緩め（Q1 2026 チューニング）
 DEFAULT_EXOTIC_FIRM_THRESHOLDS = ConfidenceThresholds(
     win_prob=0.85,
     win_prob_alt=0.75,
-    prob_gap=0.75,
+    prob_gap=0.70,
     mode="and",
 )
 
-# 三連系（荒れレース）: BOX買い用にやや緩め
+# 三連系（荒れレース）: 勝率を厳しめ・gap 緩め（Q1 2026 チューニング）
 DEFAULT_EXOTIC_UPSET_THRESHOLDS = ConfidenceThresholds(
-    win_prob=0.80,
+    win_prob=0.82,
     win_prob_alt=0.75,
-    prob_gap=0.55,
+    prob_gap=0.50,
     mode="and",
 )
 
@@ -91,6 +91,7 @@ class BetStrategyConfig:
     exotic_firm: ConfidenceThresholds = DEFAULT_EXOTIC_FIRM_THRESHOLDS
     exotic_upset: ConfidenceThresholds = DEFAULT_EXOTIC_UPSET_THRESHOLDS
     win: ConfidenceThresholds = DEFAULT_WIN_THRESHOLDS
+    split_scoring: bool = True
 
 
 DEFAULT_STRATEGY = BetStrategyConfig()
@@ -551,27 +552,31 @@ def build_race_bet_plan(
     scored_race: pd.DataFrame,
     thresholds: Optional[ConfidenceThresholds] = None,
     strategy: Optional[BetStrategyConfig] = None,
+    exotic_race: Optional[pd.DataFrame] = None,
 ) -> RaceBetPlan:
-    """1レース分の印・馬券案を生成。"""
+    """1レース分の印・馬券案を生成（exotic_race で三連系スコアを分離可能）。"""
     st = strategy or DEFAULT_STRATEGY
     win_th = thresholds or st.win
+    ex_race = exotic_race if exotic_race is not None else scored_race
 
     race_id = str(scored_race["race_id"].iloc[0])
     race_no = int(scored_race["race_no"].iloc[0])
     race_name = str(scored_race.get("race_name", pd.Series([""])).iloc[0])
 
-    top5 = assign_marks(scored_race)
+    top5 = assign_marks(ex_race)
     marks = [
         (str(row["mark"]), str(row["umaban"]), str(row["horse_name"]))
         for _, row in top5.iterrows()
     ]
 
     win_high, p1, gap = is_high_confidence(scored_race, win_th)
-    signals = collect_race_signals(scored_race, p1, gap)
-    win_profile = detect_win_profile(signals, st)
-    exotic_profile = detect_exotic_profile(signals, st)
+    _, ex_p1, ex_gap = is_high_confidence(ex_race, win_th)
+    signals_win = collect_race_signals(scored_race, p1, gap)
+    signals_ex = collect_race_signals(ex_race, ex_p1, ex_gap)
+    win_profile = detect_win_profile(signals_win, st)
+    exotic_profile = detect_exotic_profile(signals_ex, st)
     exotic_th = st.exotic_upset if exotic_profile == "荒" else st.exotic_firm
-    exotic_high = matches_threshold(p1, gap, exotic_th)
+    exotic_high = matches_threshold(ex_p1, ex_gap, exotic_th)
 
     plan = RaceBetPlan(
         race_id=race_id,
@@ -582,7 +587,7 @@ def build_race_bet_plan(
         win_profile=win_profile,
         exotic_profile=exotic_profile,
         race_profile=exotic_profile,
-        fav_odds=signals.fav_odds,
+        fav_odds=signals_win.fav_odds,
         win_prob_top=p1,
         prob_gap=gap,
         marks=marks,
@@ -599,13 +604,13 @@ def build_race_bet_plan(
         plan.sanrentan = build_sanrentan_formation(top5)
         plan.wide = (
             build_wide_formation_upset(top5)
-            if is_volatile_race(signals, st)
+            if is_volatile_race(signals_ex, st)
             else build_wide_formation(top5)
         )
     else:
         plan.sanrenpuku_box = build_sanrenpuku_box(
             top5,
-            scored_race,
+            ex_race,
             core_count=st.upset_box_core,
             extra_longshots=st.upset_longshot_count,
         )
@@ -618,13 +623,23 @@ def build_day_bet_plans(
     scored: pd.DataFrame,
     thresholds: Optional[ConfidenceThresholds] = None,
     strategy: Optional[BetStrategyConfig] = None,
+    exotic_scored: Optional[pd.DataFrame] = None,
 ) -> List[RaceBetPlan]:
     """日付全体のレースごと馬券案。"""
     if scored.empty:
         return []
+    st = strategy or DEFAULT_STRATEGY
+    ex_by_race: dict = {}
+    if st.split_scoring and exotic_scored is not None:
+        ex_by_race = {
+            str(rid): grp
+            for rid, grp in exotic_scored.groupby("race_id", sort=False)
+        }
     plans: List[RaceBetPlan] = []
     for _, group in scored.groupby("race_id", sort=False):
-        plans.append(build_race_bet_plan(group, thresholds, strategy))
+        rid = str(group["race_id"].iloc[0])
+        ex_group = ex_by_race.get(rid) if ex_by_race else None
+        plans.append(build_race_bet_plan(group, thresholds, st, exotic_race=ex_group))
     plans.sort(key=lambda p: p.race_no)
     return plans
 

@@ -7,7 +7,10 @@
 | 環境 | パス例 |
 |------|--------|
 | オリジナル PC | `C:\Users\1180075\Desktop\プログラミング\sonoda-keiba-program` |
+| 自宅 PC（2026-06） | `C:\Users\akimi\Desktop\プログラミング\sonoda-keiba-program` |
 | その他 | `git clone` 後 `cd sonoda-keiba-program` |
+
+**直近の目標:** **2026/6/3（火）園田** の当日予想を UI から実行できるようにする。
 
 ---
 
@@ -44,14 +47,14 @@
 
 **堅（流し + 三連単 + ワイド）**
 
-- 自信度: exotic_firm（勝率85% & gap75%）
+- 自信度: exotic_firm（勝率85% & gap70%）
 - 三連複: ◎1軸流し6点
 - 三連単: ◎→○▲→△☆ 4点
 - ワイド: ◎-○▲（2点）。is_volatile_race なら ◎-○▲△（3点）
 
 **荒（BOX、三連単なし）**
 
-- 自信度: exotic_upset（勝率80% & gap55%）
+- 自信度: exotic_upset（勝率82% & gap50%）
 - 三連複: **上位4頭 + 穴2 = 20点 BOX**
 - ワイド: ◎-○▲△（3点）
 - 穴馬: オッズ穴 + モデル中位を混在（_pick_exotic_longshots）
@@ -73,58 +76,73 @@
 
 - **荒レース（win_profile == 荒）は複勝◎も見送り**（`skip_place_on_upset=True`）
 
+### スコアリングの二重化（split scoring・**採用中**）
+
+単勝系と三連系で**別重み**を使う（`BetStrategyConfig.split_scoring=True` 既定）。
+
+| 用途 | 重みファイル | 関数 |
+|------|-------------|------|
+| 単勝・複勝・自信度（win） | `config/tuned_weights_style.json` | `predict_date` → win race |
+| 印・三連複/単・ワイド | `config/tuned_weights_sanrenpuku.json` | `predict_date` → exotic race |
+
+実装: `scoring_config.load_split_scoring_configs()` / `build_race_bet_plan(..., exotic_race=)` / `backtest_period` が自動で二重予想。
+
 ---
 
 ## 3. スコアリング重み
 
 | ファイル | 説明 |
 |---------|------|
-| **config/tuned_weights.json** | **デフォルト（style 重み）— 採用中** |
-| config/tuned_weights_sanrenpuku.json | 三連複ROI目的チューニング（2026-06。**未採用・要検証**） |
-| config/tuned_weights_style.json | style のバックアップ |
+| **config/tuned_weights.json** | デフォルト（style 重みのコピー） |
+| **config/tuned_weights_style.json** | **単勝系（split 採用中）** |
+| **config/tuned_weights_sanrenpuku.json** | **三連系（split 採用中）** |
 | config/tuned_weights_walkforward.json | walkforward 版 |
 | config/tuned_weights_domain.json | 脚質+園田ドメイン（比較用） |
 
-### 三連複ROIチューニング結果（参考・5月のみ）
+### style vs sanrenpuku A/B（同一馬券ロジック・単一重みのみ）
 
-`scripts/tune_weights.py --objective sanrenpuku --reference-date 20260430`
+| 期間 | style 三連複 | sanrenpuku 三連複 |
+|------|-------------|-------------------|
+| 2025 通年 | 60.1% | **76.8%** |
+| 2026/1-5 | 57.7% | **62.1%** |
+| 2026/1-3 | 21.5% | **32.2%** |
+| 2026/4-5 | 80.1% | 80.0% |
 
-| 重み | 5月 三連複回収率 | 備考 |
-|------|-----------------|------|
-| style（現行） | **85.7%** | compare_models.log（脚質のみ） |
-| sanrenpuku 新重み | **61.4%** | 5月で再選定したが style より劣る |
-
-→ **5月だけ見て採用しないこと。** 下記「次にやること」で 1〜5月通しを評価する。
+→ holdout（2025）では sanrenpuku が明確に優位。**split 採用**（単勝=style / 三連=sanrenpuku）で両方の強みを使う。
 
 ---
 
 ## 4. バックテスト参考値
 
-### 旧ロジック（§4 以前・複勝見送りなし等）
+### split scoring（style 単勝 + sanrenpuku 三連系）— **現行**
 
-| 期間 | 単勝(堅のみ) | 三連複 | 三連単 | ワイド |
-|------|-------------|--------|--------|--------|
-| 2026/3-5 | 55.9% / 92.3% | 45.0% / 87.3% | 10.9% / 79.8% | 69.2% / 84.0% |
-| 2026/1-5 | 54.3% / 89.5% | 42.9% / 72.6% | 9.8% / 66.0% | 69.9% / 68.8% |
-| 2025 通年 | 48.0% / 83.4% | 40.0% / 74.8% | 8.9% / 70.9% | 64.9% / 76.2% |
+複勝荒見送り + クラス/距離堅荒。`split_scoring=True` 既定。
 
-### 新ロジック（複勝・単勝荒見送り + クラス/距離堅荒）— 2026/5 のみ
+| 期間 | R数 | 単勝(堅) | 複勝 | 三連複 | 三連単 | ワイド |
+|------|-----|---------|------|--------|--------|--------|
+| 2026/1-5 | 491 | **87.5%** | 79.5% | **73.4%** | 82.5% | 86.6% |
+| 2026/1-3 | 168 | 83.4% | 99.2% | **61.7%** | 55.1% | 91.9% |
+| 2026/4-5 | 323 | **89.5%** | 94.0% | **80.2%** | 118.5% | 83.6% |
+| 2025 通年 | 1663 | 82.8% | 90.9% | **76.8%** | 70.5% | 86.1% |
 
-`backtest_place_skip.log`（style 重み・現行デフォルト）
-
-| 券種 | 回収率 |
-|------|--------|
-| 単勝◎(堅のみ) | 95.9%（114R） |
-| 複勝◎ | 91.8%（114R） |
-| 三連複 | 66.5%（124R） |
-| 三連単 | 125.3%（109R） |
-| ワイド | 71.1%（124R） |
-
-※ 旧 §4 表とは馬券ロジックが異なるため直接比較不可。
+- 2026/1-5 の三連複は style 単体（57.7%）より **+4.4pt** 改善
+- 2025 holdout 三連複 **76.8%** — 2026 通期（62.1%）より高く、2026 は未確定サンプル
+- **Q1 2026**: 1-3月 三連複 **61.7%**（168R）。1月 payback 未取得が主因だった（取得後 58.9%→61.7%）。**2月は園田開催なし**（master 0R）
+- 三連系閾値（Q1 チューニング・4-5月 validate 維持）: `exotic_firm` gap **0.70** / `exotic_upset` 勝率 **0.82** gap **0.50**（`config/exotic_thresholds.json`）
 
 ```powershell
 python scripts/backtest_bets.py --from 20260101 --to 20260531
+python scripts/analyze_q1_collapse.py   # Q1 要因分析
 ```
+
+### 旧ロジック（参考・split 前・単一 style 重み）
+
+| 期間 | 単勝(堅) | 三連複 |
+|------|---------|--------|
+| 2026/1-5 | 87.5% | 57.7% |
+| 2026/1-3 | 83.4% | 21.5% |
+| 2026/4-5 | 89.5% | 80.1% |
+| 2025 通年 | 82.8% | 60.1% |
 
 payback キャッシュが無い場合は `--fetch-payback`（数時間かかる）。
 
@@ -150,6 +168,9 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 | python scripts/build_features.py | 特徴量 → master 更新 |
 | python scripts/predict.py --date YYYYMMDD | 予想 + 馬券案 |
 | python scripts/backtest_bets.py --from ... --to ... | 馬券バックテスト |
+| python scripts/fetch_paybacks.py --from ... --to ... | 払戻キャッシュ拡充 |
+| python scripts/analyze_q1_collapse.py | 2026 Q1 三連複崩れ分析 |
+| python scripts/tune_exotic_thresholds.py [--apply] | 三連系自信度閾値探索 |
 | python scripts/tune_weights.py --objective sanrenpuku | 三連複ROI向け重み探索 |
 | python scripts/compare_models.py --skip-tune | 3モデル比較（保存済み重み） |
 | python scripts/walkforward_tune.py | ウォークフォワード再チューニング |
@@ -167,50 +188,48 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 
 ## 8. 次にやること（優先順）
 
-### 必須（次セッション最初）
+### 完了済み（2026-06 自宅 PC）
 
-1. **脚質を master に反映**
+- style vs sanrenpuku A/B → split scoring 採用
+- 2026/1-5・期間分割・2025 通年バックテスト（split + 新三連系閾値）
+- Q1 崩れ分析・1月 payback 84R 取得（`scripts/fetch_paybacks.py`）
+- 三連系閾値 Q1 チューニング → `bets.py` + `config/exotic_thresholds.json`
+- **5月末まで master にデータあり**（ユーザー確認済み 2026-06-02）
+
+### 最優先（会社 PC・次セッション）— **当日予想 UI**
+
+**現状:** UI なし。CLI の `scripts/predict.py` のみ。Web/Streamlit 等は未導入（`requirements.txt` に streamlit 等なし）。
+
+**ゴール（6/3 前）:** ブラウザ or デスクトップから「日付指定 → 予想取得 → レース一覧＋馬券案」を見られること。
+
+詳細仕様 → **§10 当日予想 UI** を実装の設計書として使うこと。
+
+**会社 PC 着手前チェックリスト**
+
+1. `git pull`（コード最新化）
+2. iCloud 等から `data/processed/horses_master.csv` を同期（5月末まで入っていること再確認）
+3. `pip install -r requirements.txt`（UI 追加時は streamlit 等を追記）
+4. 動作確認（CLI）:
    ```powershell
-   .\.venv\Scripts\python.exe scripts/build_features.py
+   python scripts/predict.py --date 20260603
    ```
-   脚質キャッシュは 3756 件揃ったが、`horses_master.csv` への反映は未実行の可能性大。
-
-2. **2026/1〜5 バックテスト（初見評価）**
-   - 5月だけのチューニング結果に過学習しないため、**通期で判断**
+   出馬表未公開なら「予想対象がありません」と出るのは正常。公開後に再実行。
+5. オフライン検証（通信なし）:
    ```powershell
-   .\.venv\Scripts\python.exe scripts/backtest_bets.py --from 20260101 --to 20260531
-   ```
-
-3. **style vs sanrenpuku 重みの A/B 比較**
-   - 現行: `config/tuned_weights.json`（style）
-   - 新: `config/tuned_weights_sanrenpuku.json`（ScoringConfig.load または `--weights` 相当で切替要確認）
-   - 5月 sanrenpuku は 61.4% と style 85.7% より劣る → **1〜5月通しで再確認してから採用判断**
-
-### 推奨（過学習チェック）
-
-4. **期間分割バックテスト**
-   ```powershell
-   .\.venv\Scripts\python.exe scripts/backtest_bets.py --from 20260101 --to 20260331
-   .\.venv\Scripts\python.exe scripts/backtest_bets.py --from 20260401 --to 20260531
-   ```
-   5月だけ突出していないか確認。
-
-5. **2025 通年（真の holdout）**
-   ```powershell
-   .\.venv\Scripts\python.exe scripts/backtest_bets.py --from 20250101 --to 20251231
+   python scripts/predict.py --date 20260529 --offline
    ```
 
-### 採用判断後
+### 任意（時間があれば）
 
-6. sanrenpuku 重みを採用するなら `tuned_weights.json` を上書き。採用しないなら現行 style のまま。
-7. `docs/PROJECT_STATUS.md` §4 に新ロジックの 1〜5月数値を追記。
-8. 次の開催予想: `python scripts/predict.py --date YYYYMMDD`
+- `build_features.py` — 脚質キャッシュ 3756 件を master に未反映なら実行
+- 6/3 終了後: `fetch_races.py --date 20260603 --save` → `build_features.py` で master 更新
 
 ### 注意
 
 - venv 有効化が PowerShell ポリシーで失敗する PC では `.\.venv\Scripts\python.exe` 直叩き
-- 脚質バックフィル中に JSON を読むと一時的に壊れて見える → 完了後は 3756 件で正常
-- `payback_cache.json` は .gitignore。GitHub clone だけではバックテスト不可
+- `payback_cache.json` は .gitignore。UI の当日予想には**不要**（出馬表取得のみ）
+- 当日 `--retune` は使わない（遅い・過学習リスク）
+- netkeiba 通信制限: 1 リクエスト 7〜10 秒。12R で約 2 分。UI には進捗表示必須
 
 ---
 
@@ -222,6 +241,123 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 4. walkforward 再チューニング → style 重みをデフォルトに復帰
 5. 複勝荒見送り + クラス/距離堅荒 + `--objective sanrenpuku` 追加
 6. 脚質キャッシュ 3756 件バックフィル完了（2026-06 会社 PC）
-7. `config/tuned_weights_sanrenpuku.json` 生成（採用は未決）
+7. style vs sanrenpuku A/B → **split scoring 採用**（style 単勝 / sanrenpuku 三連系）
+8. `scripts/analyze_q1_collapse.py` 追加、2026 Q1 崩れ分析
+9. 1月 payback 84R 取得 + 三連系閾値 Q1 チューニング（`exotic_thresholds.json`）
+10. 自宅 PC: 5月末 master 確認済み。**次: 6/3 向け当日予想 UI**（§10）
+
+---
+
+## 10. 当日予想 UI — 設計・引き継ぎ（会社 PC 用）
+
+**作成:** 2026-06-02（自宅 PC）  
+**目的:** 2026/6/3 園田開催を UI から予想・馬券確認できるようにする。
+
+### 10.1 現状のアーキテクチャ（CLI）
+
+```
+predict.py
+  ├─ load_master()
+  ├─ load_split_scoring_configs()  → style + sanrenpuku
+  ├─ predict_date(date, fetch_entries=True)   # netkeiba 出馬表
+  ├─ predict_date(date, config=ex_cfg, fetch_entries=False)  # 三連系用（同一 entries を再スコア）
+  └─ build_day_bet_plans(win_df, exotic_scored=ex_df) → List[RaceBetPlan]
+```
+
+| モジュール | 役割 |
+|-----------|------|
+| `src/predictor/score.py` | `predict_date`, `score_entries` — 出馬表→特徴量→勝率 |
+| `src/predictor/bets.py` | `build_day_bet_plans`, `RaceBetPlan` — 印・馬券案 |
+| `src/predictor/scoring_config.py` | split 重みパス |
+| `src/scraper/shutuba.py` | 出馬表 HTML 取得・パース |
+| `scripts/predict.py` | 上記を繋ぐ CLI（`_print_predictions` が表示ロジック） |
+
+**UI 化の方針:** ロジックは `src/` に残し、UI は薄いラッパーにする。`predict.py` の `main()` をコピーせず、共通化関数を切り出す。
+
+### 10.2 推奨スタック
+
+| 案 | メリット | 備考 |
+|----|---------|------|
+| **Streamlit**（推奨） | Python のみ・実装が早い・表表示が楽 | `pip install streamlit` を requirements に追加 |
+| FastAPI + 静的 HTML | 将来モバイル対応しやすい | 6/3 までの工数は増 |
+| CLI 強化のみ | 追加依存なし | ユーザー要望は「UI」 |
+
+**推奨:** `app/streamlit_app.py` または `scripts/predict_ui.py`（Streamlit 1 ファイル MVP）。
+
+### 10.3 MVP 画面要件（6/3 最低限）
+
+1. **日付入力** — デフォルト今日（`20260603`）。カレンダー or テキスト `YYYYMMDD`
+2. **「予想取得」ボタン** — `fetch_entries=True` で netkeiba 取得
+3. **進捗表示** — 「3/12R 取得中…」（`predict_date` 内ループをコールバック化するか、UI 側で race_ids を先に list して 1R ずつ取得）
+4. **レース一覧** — R 番・レース名・距離
+5. **レース詳細（折りたたみ or タブ）**
+   - 印 ◎○▲△☆ + 馬名 + 勝率 + オッズ（上位5頭）
+   - バッジ: 単勝自信度 / 三連自信度 / 単勝プロファイル（堅・荒）/ 三連プロファイル
+   - 1番人気オッズ、1位勝率、1-2位差
+   - 馬券案（自信度「高」の三連系のみ）: 三連複流し or BOX、三連単、ワイドの label 文字列
+   - 単勝・複勝「見送り」時は理由表示（`confidence` に「荒れ・単勝見送り」等）
+6. **フィルタ** — 「三連系 自信度「高」のみ」「単勝見送り除く」
+7. **エラー** — `NetkeibaBlockedError` → 「通信制限。しばらく待って再試行」
+
+**オフライン開発用:** `--offline` 相当のトグル（master 上の過去日で UI テスト）。fixture 日: `20260529`。
+
+### 10.4 実装ステップ（会社 PC でこの順）
+
+| Step | 内容 | 成果物 |
+|------|------|--------|
+| 1 | `src/predictor/predict_day.py`（新規）に `run_predict_day(date, *, offline=False) -> PredictDayResult` を切り出し。dataclass で `win_df`, `exotic_df`, `plans: List[RaceBetPlan]` を返す | `predict.py` から import してリファクタ |
+| 2 | Streamlit MVP: 日付 + ボタン + plans ループ表示 | `app/predict_app.py` |
+| 3 | 進捗バー（race_ids ループを predict_day 側で generator/callback 対応） | UX 改善 |
+| 4 | スタイル（堅/荒で色分け、三連「買い」レースを上部にピン） | 任意 |
+| 5 | `requirements.txt` に `streamlit` 追加、README / §6 に起動コマンド追記 | `streamlit run app/predict_app.py` |
+
+**起動コマンド（想定）**
+
+```powershell
+cd sonoda-keiba-program
+.\.venv\Scripts\python.exe -m streamlit run app/predict_app.py
+```
+
+### 10.5 `RaceBetPlan` 表示に使うフィールド
+
+```python
+# src/predictor/bets.py — RaceBetPlan
+race_no, race_name
+confidence          # 単勝側「高」「通常（荒れ・単勝見送り）」等
+exotic_confidence   # 三連系「高」「通常」
+win_profile, exotic_profile  # 「堅」「荒」
+fav_odds, win_prob_top, prob_gap
+marks               # [(印, 馬番, 馬名), ...]
+sanrenpuku, sanrenpuku_box, sanrentan, wide  # .label 文字列で表示
+```
+
+### 10.6 6/3 当日オペレーション
+
+| タイミング | 操作 |
+|-----------|------|
+| 前日〜当日朝 | 出馬表・オッズ未確定なら空。焦らず待つ |
+| オッズ確定後 | UI で `20260603` → 予想取得 |
+| レース間 | オッズ変動時は再取得可（通信制限に注意） |
+| 終了後 | `fetch_races.py --date 20260603 --save` → `build_features.py` |
+
+**CLI フォールバック（UI 未完成時）**
+
+```powershell
+python scripts/predict.py --date 20260603
+```
+
+### 10.7 触らないもの（6/3 前）
+
+- 馬券ロジック本体（`bets.py`）の大変更
+- `--retune` / walkforward の当日実行
+- sanrenpuku 重みの再チューニング（split 構成は固定）
+
+### 10.8 参考ファイル
+
+- 出馬表 HTML サンプル: `tests/fixtures/shutuba_202650052901.html`（6/3 が「次開催」リンク）
+- 表示ロジック参考: `scripts/predict.py` の `_print_predictions`
+- Agent 共通: ルート `AGENTS.md`
+
+*UI 実装が進んだら §6 スクリプト表と §9 履歴を更新すること。*
 
 *大きな方針変更があったらこのファイルを更新すること。*

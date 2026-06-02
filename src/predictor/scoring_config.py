@@ -11,6 +11,8 @@ from config.settings import PROJECT_ROOT
 from src.features.constants import DOMAIN_FEATURE_COLUMNS, STYLE_FEATURE_COLUMNS
 
 WEIGHTS_CONFIG_PATH = PROJECT_ROOT / "config" / "tuned_weights.json"
+WIN_WEIGHTS_PATH = PROJECT_ROOT / "config" / "tuned_weights_style.json"
+EXOTIC_WEIGHTS_PATH = PROJECT_ROOT / "config" / "tuned_weights_sanrenpuku.json"
 
 # Phase A+B 追加前（8特徴量・非正規化）
 LEGACY_FEATURE_WEIGHTS: Dict[str, float] = {
@@ -191,3 +193,14 @@ class ScoringConfig:
         with path.open("w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
         return path
+
+
+def load_split_scoring_configs(
+    win_path: Optional[Path] = None,
+    exotic_path: Optional[Path] = None,
+) -> tuple[ScoringConfig, ScoringConfig]:
+    """単勝用(style)と三連系用(sanrenpuku)の重みを読み込む。"""
+    return (
+        ScoringConfig.load_tuned(win_path or WIN_WEIGHTS_PATH),
+        ScoringConfig.load_tuned(exotic_path or EXOTIC_WEIGHTS_PATH),
+    )

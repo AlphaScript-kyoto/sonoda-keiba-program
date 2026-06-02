@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional
 
 import pandas as pd
@@ -11,6 +11,8 @@ from src.predictor.bets import (
     BetStrategyConfig,
     ConfidenceThresholds,
     DEFAULT_STRATEGY,
+    DEFAULT_EXOTIC_FIRM_THRESHOLDS,
+    DEFAULT_EXOTIC_UPSET_THRESHOLDS,
     DEFAULT_WIN_THRESHOLDS,
     assign_marks,
     build_race_bet_plan,
@@ -30,7 +32,7 @@ from src.predictor.bets import (
     is_high_confidence,
     matches_threshold,
 )
-from src.predictor.scoring_config import ScoringConfig
+from src.predictor.scoring_config import ScoringConfig, load_split_scoring_configs
 from src.predictor.score import load_master, predict_date, set_scoring_config
 from src.scraper.payback import RacePayback, fetch_paybacks, load_payback_cache, payback_from_dict, wide_payout_yen
 
@@ -103,6 +105,8 @@ class _RaceRecord:
     actual_1st: str
     win_prob_top: float
     prob_gap: float
+    exotic_prob_top: float
+    exotic_prob_gap: float
     win_hit: bool
     place_hit: bool
     win_payout: int
@@ -187,9 +191,14 @@ def _collect_race_records(
     master: pd.DataFrame,
     paybacks: Dict[str, RacePayback],
     config: Optional[ScoringConfig] = None,
+    exotic_config: Optional[ScoringConfig] = None,
     strategy: BetStrategyConfig = DEFAULT_STRATEGY,
 ) -> List[_RaceRecord]:
     """予想・結果・払戻を1レース1行に事前集計（閾値探索用）。"""
+    win_cfg = config or ScoringConfig.load_tuned()
+    use_split = strategy.split_scoring and exotic_config is not None
+    ex_cfg = exotic_config if use_split else win_cfg
+
     hist = master[
         (master["date"].astype(str) >= from_yyyymmdd)
         & (master["date"].astype(str) <= to_yyyymmdd)
@@ -197,15 +206,23 @@ def _collect_race_records(
     records: List[_RaceRecord] = []
 
     for date in sorted(hist["date"].astype(str).unique()):
-        scored = predict_date(date, master=master, fetch_entries=False, config=config)
-        if scored.empty:
+        scored_win = predict_date(date, master=master, fetch_entries=False, config=win_cfg)
+        if scored_win.empty:
             continue
+        scored_ex = (
+            predict_date(date, master=master, fetch_entries=False, config=ex_cfg)
+            if use_split
+            else scored_win
+        )
+        ex_by_race = {
+            str(rid): grp for rid, grp in scored_ex.groupby("race_id", sort=False)
+        }
 
         actual_by_race = {
             rid: grp for rid, grp in hist[hist["date"].astype(str) == date].groupby("race_id")
         }
 
-        for race_id, pred_group in scored.groupby("race_id", sort=False):
+        for race_id, pred_group in scored_win.groupby("race_id", sort=False):
             race_id = str(race_id)
             actual = actual_by_race.get(race_id)
             if actual is None or actual.empty:
@@ -215,12 +232,15 @@ def _collect_race_records(
             if not finish:
                 continue
 
-            top5 = assign_marks(pred_group)
+            ex_group = ex_by_race.get(race_id, pred_group)
+            top5 = assign_marks(ex_group)
             win_high, p1, gap = is_high_confidence(pred_group, strategy.win)
-            signals = collect_race_signals(pred_group, p1, gap)
-            win_profile = detect_win_profile(signals, strategy)
-            exotic_profile = detect_exotic_profile(signals, strategy)
-            volatile = is_volatile_race(signals, strategy)
+            _, ex_p1, ex_gap = is_high_confidence(ex_group, strategy.win)
+            signals_win = collect_race_signals(pred_group, p1, gap)
+            signals_ex = collect_race_signals(ex_group, ex_p1, ex_gap)
+            win_profile = detect_win_profile(signals_win, strategy)
+            exotic_profile = detect_exotic_profile(signals_ex, strategy)
+            volatile = is_volatile_race(signals_ex, strategy)
             top = pred_group.sort_values("rank_pred").iloc[0]
             pred_u = str(top["umaban"])
             race_no = int(pred_group["race_no"].iloc[0])
@@ -235,7 +255,7 @@ def _collect_race_records(
             nagashi = build_sanrenpuku_nagashi(top5)
             box = build_sanrenpuku_box(
                 top5,
-                pred_group,
+                ex_group,
                 core_count=strategy.upset_box_core,
                 extra_longshots=strategy.upset_longshot_count,
             )
@@ -269,6 +289,8 @@ def _collect_race_records(
                     actual_1st=finish[0],
                     win_prob_top=p1,
                     prob_gap=gap,
+                    exotic_prob_top=ex_p1,
+                    exotic_prob_gap=ex_gap,
                     win_hit=win_hit,
                     place_hit=place_hit,
                     win_payout=_win_payout_yen(pred_u, pb, str(odds)),
@@ -304,7 +326,7 @@ def _exotic_high_for_record(
     rec: _RaceRecord, strategy: BetStrategyConfig = DEFAULT_STRATEGY
 ) -> bool:
     th = strategy.exotic_upset if rec.exotic_profile == "荒" else strategy.exotic_firm
-    return matches_threshold(rec.win_prob_top, rec.prob_gap, th)
+    return matches_threshold(rec.exotic_prob_top, rec.exotic_prob_gap, th)
 
 
 def _aggregate_records(
@@ -423,12 +445,15 @@ def backtest_period(
     strategy: BetStrategyConfig = DEFAULT_STRATEGY,
     records: Optional[List[_RaceRecord]] = None,
     config: Optional[ScoringConfig] = None,
+    exotic_config: Optional[ScoringConfig] = None,
 ) -> BacktestReport:
     """期間内の全レースをオフライン予想し、回収率を集計。"""
     th = thresholds or DEFAULT_WIN_THRESHOLDS
     master = master if master is not None else load_master()
-    cfg = config or ScoringConfig.load_tuned()
-    set_scoring_config(cfg)
+    win_cfg = config or ScoringConfig.load_tuned()
+    if strategy.split_scoring and exotic_config is None:
+        _, exotic_config = load_split_scoring_configs()
+    set_scoring_config(win_cfg)
 
     if records is None:
         hist = master[
@@ -440,8 +465,9 @@ def backtest_period(
 
         race_ids = sorted(hist["race_id"].astype(str).unique().tolist())
         paybacks = _load_paybacks_for_races(race_ids, fetch_missing=fetch_payback)
+        ex_cfg = exotic_config if strategy.split_scoring else None
         records = _collect_race_records(
-            from_yyyymmdd, to_yyyymmdd, master, paybacks, cfg, strategy
+            from_yyyymmdd, to_yyyymmdd, master, paybacks, win_cfg, ex_cfg, strategy
         )
 
     return _aggregate_records(records, from_yyyymmdd, to_yyyymmdd, th, strategy)
@@ -540,3 +566,129 @@ def tune_confidence_thresholds(
 
     results.sort(key=lambda r: (r.combined_roi, r.sanrenpuku_roi), reverse=True)
     return results
+
+@dataclass
+class ExoticTuneResult:
+    firm: ConfidenceThresholds
+    upset: ConfidenceThresholds
+    q1_sanren_roi: float
+    q1_sanren_races: int
+    validate_sanren_roi: float
+
+
+def _sanren_roi_and_races(report: BacktestReport) -> tuple[float, int]:
+    return report.sanrenpuku.roi, report.sanrenpuku.races
+
+
+def _filter_records_by_date(
+    records: List[_RaceRecord], from_yyyymmdd: str, to_yyyymmdd: str
+) -> List[_RaceRecord]:
+    return [r for r in records if from_yyyymmdd <= r.date <= to_yyyymmdd]
+
+
+def _strategy_with_exotic(
+    strategy: BetStrategyConfig,
+    firm: ConfidenceThresholds,
+    upset: ConfidenceThresholds,
+) -> BetStrategyConfig:
+    return replace(strategy, exotic_firm=firm, exotic_upset=upset)
+
+
+def tune_exotic_thresholds(
+    q1_from: str,
+    q1_to: str,
+    validate_from: str,
+    validate_to: str,
+    master: Optional[pd.DataFrame] = None,
+    *,
+    firm_win_probs: Optional[List[float]] = None,
+    firm_gaps: Optional[List[float]] = None,
+    upset_win_probs: Optional[List[float]] = None,
+    upset_gaps: Optional[List[float]] = None,
+    min_q1_sanren_races: int = 25,
+    validate_roi_slack: float = 0.03,
+    strategy: BetStrategyConfig = DEFAULT_STRATEGY,
+) -> List[ExoticTuneResult]:
+    """Grid-search exotic_firm / exotic_upset thresholds (split scoring records)."""
+    master = master if master is not None else load_master()
+    span_from = min(q1_from, validate_from)
+    span_to = max(q1_to, validate_to)
+
+    hist = master[
+        (master["date"].astype(str) >= span_from)
+        & (master["date"].astype(str) <= span_to)
+    ]
+    race_ids = sorted(hist["race_id"].astype(str).unique().tolist())
+    paybacks = _load_paybacks_for_races(race_ids, fetch_missing=False)
+    win_cfg, ex_cfg = load_split_scoring_configs()
+    all_records = _collect_race_records(
+        span_from, span_to, master, paybacks, win_cfg, ex_cfg, strategy
+    )
+    q1_records = _filter_records_by_date(all_records, q1_from, q1_to)
+    val_records = _filter_records_by_date(all_records, validate_from, validate_to)
+
+    baseline_val = _aggregate_records(
+        val_records,
+        validate_from,
+        validate_to,
+        DEFAULT_WIN_THRESHOLDS,
+        strategy,
+    )
+    baseline_val_roi, _ = _sanren_roi_and_races(baseline_val)
+    min_validate_roi = baseline_val_roi - validate_roi_slack
+
+    fw = firm_win_probs if firm_win_probs is not None else [0.85, 0.88, 0.90]
+    fg = firm_gaps if firm_gaps is not None else [0.70, 0.75, 0.80, 0.85]
+    uw = upset_win_probs if upset_win_probs is not None else [0.78, 0.80, 0.82]
+    ug = upset_gaps if upset_gaps is not None else [0.50, 0.55, 0.60]
+
+    results: List[ExoticTuneResult] = []
+    for f_wp in fw:
+        for f_gap in fg:
+            firm_th = ConfidenceThresholds(
+                win_prob=f_wp,
+                win_prob_alt=DEFAULT_EXOTIC_FIRM_THRESHOLDS.win_prob_alt,
+                prob_gap=f_gap,
+                mode=DEFAULT_EXOTIC_FIRM_THRESHOLDS.mode,
+            )
+            for u_wp in uw:
+                for u_gap in ug:
+                    upset_th = ConfidenceThresholds(
+                        win_prob=u_wp,
+                        win_prob_alt=DEFAULT_EXOTIC_UPSET_THRESHOLDS.win_prob_alt,
+                        prob_gap=u_gap,
+                        mode=DEFAULT_EXOTIC_UPSET_THRESHOLDS.mode,
+                    )
+                    trial = _strategy_with_exotic(strategy, firm_th, upset_th)
+                    q1_report = _aggregate_records(
+                        q1_records, q1_from, q1_to, DEFAULT_WIN_THRESHOLDS, trial
+                    )
+                    q1_roi, q1_races = _sanren_roi_and_races(q1_report)
+                    if q1_races < min_q1_sanren_races:
+                        continue
+                    val_report = _aggregate_records(
+                        val_records,
+                        validate_from,
+                        validate_to,
+                        DEFAULT_WIN_THRESHOLDS,
+                        trial,
+                    )
+                    val_roi, _ = _sanren_roi_and_races(val_report)
+                    if val_roi < min_validate_roi:
+                        continue
+                    results.append(
+                        ExoticTuneResult(
+                            firm=firm_th,
+                            upset=upset_th,
+                            q1_sanren_roi=q1_roi,
+                            q1_sanren_races=q1_races,
+                            validate_sanren_roi=val_roi,
+                        )
+                    )
+
+    results.sort(
+        key=lambda r: (r.q1_sanren_roi, r.validate_sanren_roi),
+        reverse=True,
+    )
+    return results
+
