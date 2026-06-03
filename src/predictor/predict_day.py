@@ -215,7 +215,9 @@ def run_predict_day(
             if not fresh_entries.empty
             else pd.DataFrame()
         )
-        exotic_df = _merge_scored_frames([cached_ex or pd.DataFrame(), fresh_ex])
+        exotic_df = _merge_scored_frames(
+            [df for df in (cached_ex, fresh_ex) if df is not None]
+        )
         if exotic_df.empty:
             exotic_df = None
 

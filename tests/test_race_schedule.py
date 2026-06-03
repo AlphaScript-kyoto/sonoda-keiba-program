@@ -27,3 +27,16 @@ def test_is_race_started():
     assert is_race_started("20260603", "14:30", now=datetime(2026, 6, 3, 14, 30))
     assert is_race_started("20260603", "14:30", now=datetime(2026, 6, 3, 15, 0))
     assert not is_race_started("20260603", "", now=datetime(2026, 6, 3, 15, 0))
+
+
+def test_merge_scored_frames_does_not_bool_dataframe():
+    import pandas as pd
+
+    from src.predictor.predict_day import _merge_scored_frames
+
+    cached_ex = pd.DataFrame({"race_id": ["1"], "score": [1.0]})
+    fresh_ex = pd.DataFrame({"race_id": ["2"], "score": [2.0]})
+    merged = _merge_scored_frames(
+        [df for df in (cached_ex, fresh_ex) if df is not None]
+    )
+    assert len(merged) == 2
