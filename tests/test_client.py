@@ -7,7 +7,12 @@ from unittest.mock import MagicMock, patch
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.scraper.client import NetkeibaBlockedError, build_request_headers, fetch_html
+from src.scraper.client import (
+    NetkeibaBlockedError,
+    _detect_encoding,
+    build_request_headers,
+    fetch_html,
+)
 
 
 def test_build_request_headers():
@@ -16,6 +21,30 @@ def test_build_request_headers():
     assert headers["Referer"] == "https://nar.netkeiba.com/"
     assert "ja" in headers["Accept-Language"]
     assert "text/html" in headers["Accept"]
+
+
+def test_detect_encoding_prefers_utf8_content_type():
+    response = MagicMock()
+    response.headers = {"Content-Type": "text/html; charset=UTF-8"}
+    response.content = (
+        b"<html><head><meta charset=EUC-JP></head>"
+        b"<body><a href='/horse/1/'>"
+        b"\xe3\x82\xb5\xe3\x83\x8b\xe3\x83\xbc\xe3\x82\xa2\xe3\x83\xbc\xe3\x83\xab"
+        b"</a></body></html>"
+    )
+    response.url = "https://nar.netkeiba.com/race/result.html?race_id=1"
+    assert _detect_encoding(response) == "utf-8"
+
+
+def test_detect_encoding_uses_meta_euc_jp_when_no_header():
+    response = MagicMock()
+    response.headers = {"Content-Type": "text/html"}
+    # EUC-JP: サニー (example bytes minimal - use fixture style)
+    response.content = (
+        b"<html><head><meta charset=EUC-JP></head><body></body></html>"
+    )
+    response.url = "https://nar.netkeiba.com/race/result.html?race_id=1"
+    assert _detect_encoding(response) == "euc-jp"
 
 
 def test_fetch_html_raises_on_400():

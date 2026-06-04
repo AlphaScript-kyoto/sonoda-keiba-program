@@ -1,6 +1,7 @@
 """netkeiba への HTTP リクエスト。"""
 
 import random
+import re
 import time
 from typing import Dict, List, Optional
 
@@ -78,17 +79,58 @@ def _pick_interval() -> float:
     return random.uniform(REQUEST_INTERVAL_MIN_SEC, REQUEST_INTERVAL_MAX_SEC)
 
 
+def _normalize_charset_name(name: str) -> str:
+    """Content-Type / meta の charset 名を Python codec 名に揃える。"""
+    key = name.strip().strip('"').strip("'").lower().replace("_", "-")
+    aliases = {
+        "eucjp": "euc-jp",
+        "euc-jp": "euc-jp",
+        "utf8": "utf-8",
+        "utf-8": "utf-8",
+        "shift-jis": "cp932",
+        "shift_jis": "cp932",
+        "sjis": "cp932",
+        "windows-31j": "cp932",
+    }
+    return aliases.get(key, key)
+
+
+def _charset_from_content_type(content_type: str) -> str | None:
+    for part in content_type.split(";"):
+        part = part.strip().lower()
+        if part.startswith("charset="):
+            return _normalize_charset_name(part.split("=", 1)[1])
+    return None
+
+
+def _charset_from_html_head(content: bytes) -> str | None:
+    head = content[:8192].decode("ascii", errors="ignore").lower()
+    for pattern in (
+        r'<meta[^>]+charset\s*=\s*["\']?([\w-]+)',
+        r'charset\s*=\s*["\']?([\w-]+)',
+    ):
+        m = re.search(pattern, head)
+        if m:
+            return _normalize_charset_name(m.group(1))
+    return None
+
+
 def _detect_encoding(response: requests.Response) -> str:
-    """nar.netkeiba 等 EUC-JP ページの文字コードを判定。"""
+    """netkeiba の文字コードを判定（Content-Type / meta を優先。旧ページは EUC-JP）。"""
     content_type = (response.headers.get("Content-Type") or "").lower()
+    from_header = _charset_from_content_type(content_type)
+    if from_header:
+        return from_header
+
+    from_meta = _charset_from_html_head(response.content)
+    if from_meta:
+        return from_meta
+
     if "euc-jp" in content_type or "eucjp" in content_type:
         return "euc-jp"
 
     head = response.content[:8192].decode("ascii", errors="ignore").lower()
     if "euc-jp" in head or "euc_jp" in head:
-        return "euc-jp"
-
-    if "nar.netkeiba.com" in (response.url or ""):
         return "euc-jp"
 
     return response.apparent_encoding or "utf-8"

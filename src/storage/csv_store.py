@@ -1,9 +1,13 @@
 """レースデータの CSV 保存。"""
 
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+
+_MARGIN_MONTH_DAY_RE = re.compile(r"^(\d{1,2})月(\d{1,2})日$")
+_MARGIN_ISO_DATE_RE = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")
 
 from config.settings import DATA_RAW_DIR
 
@@ -110,6 +114,26 @@ def _parse_excel_text(value: Any) -> str:
     return text
 
 
+def normalize_margin_value(value: Any) -> str:
+    """
+    着差を netkeiba 表記に揃える。
+    Excel が 3/4 を日付化した「3月4日」「2026-03-04」等を 3/4 形式へ戻す。
+    """
+    text = _parse_excel_text(value)
+    if not text:
+        return ""
+
+    m = _MARGIN_MONTH_DAY_RE.match(text)
+    if m:
+        return f"{int(m.group(1))}/{int(m.group(2))}"
+
+    m = _MARGIN_ISO_DATE_RE.match(text)
+    if m:
+        return f"{int(m.group(2))}/{int(m.group(3))}"
+
+    return text
+
+
 def normalize_horses_columns(df: pd.DataFrame) -> pd.DataFrame:
     """日本語ヘッダーを内部用の英語列名に揃える（旧形式の英語ヘッダーもそのまま通す）。"""
     rename = {
@@ -127,7 +151,7 @@ def read_horses_csv(path: Path, *, nrows: Optional[int] = None) -> pd.DataFrame:
     df = pd.read_csv(path, dtype=str, nrows=nrows)
     df = normalize_horses_columns(df)
     if "margin" in df.columns:
-        df["margin"] = df["margin"].map(_parse_excel_text)
+        df["margin"] = df["margin"].map(normalize_margin_value)
     return df
 
 
@@ -138,7 +162,7 @@ def _prepare_horses_for_csv(df: pd.DataFrame) -> pd.DataFrame:
         if col not in out.columns:
             out[col] = None
     out = out[HORSE_COLUMNS]
-    out["margin"] = out["margin"].map(_format_excel_text)
+    out["margin"] = out["margin"].map(normalize_margin_value).map(_format_excel_text)
     return out.rename(columns=HORSE_COLUMN_LABELS)
 
 

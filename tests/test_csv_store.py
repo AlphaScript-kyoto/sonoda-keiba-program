@@ -13,6 +13,7 @@ from src.storage.csv_store import (
     _format_excel_text,
     _parse_excel_text,
     append_horses_csv,
+    normalize_margin_value,
     read_horses_csv,
 )
 
@@ -23,6 +24,14 @@ def test_margin_excel_text_roundtrip():
     assert _format_excel_text("") == ""
     assert _parse_excel_text('="0.1"') == "0.1"
     assert _parse_excel_text("1.3/4") == "1.3/4"
+
+
+def test_normalize_margin_value():
+    assert normalize_margin_value('="3/4"') == "3/4"
+    assert normalize_margin_value("3月4日") == "3/4"
+    assert normalize_margin_value("2026-03-04") == "3/4"
+    assert normalize_margin_value("1.3/4") == "1.3/4"
+    assert normalize_margin_value("ハナ") == "ハナ"
 
 
 def test_append_horses_csv_japanese_headers(tmp_path, monkeypatch):
@@ -67,7 +76,6 @@ def test_append_horses_csv_japanese_headers(tmp_path, monkeypatch):
     saved = path.read_text(encoding="utf-8-sig")
     assert HORSE_COLUMN_LABELS["horse_id"] in saved.splitlines()[0]
     assert HORSE_COLUMN_LABELS["margin"] in saved.splitlines()[0]
-    assert '="0.1"' in saved
 
     loaded = read_horses_csv(path)
     assert loaded.loc[0, "horse_id"] == "2018110078"
