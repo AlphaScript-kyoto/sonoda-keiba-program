@@ -182,6 +182,11 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 | python scripts/compare_models.py --skip-tune | 3モデル比較（保存済み重み） |
 | python scripts/walkforward_tune.py | ウォークフォワード再チューニング |
 | python scripts/backfill_race_meta.py | 脚質・ラップキャッシュ |
+| `Rscript r_analysis/scripts/01_run_baseline.R` | **R: 勝率・特徴量デシル等の集計表**（`r_analysis/output/tables/`） |
+| `Rscript r_analysis/scripts/02_run_models.R` | **R: 1着ロジスティック試作**（`r_analysis/output/models/`） |
+| `Rscript r_analysis/scripts/run_all.R` | 上記 R 分析一括 |
+| `python scripts/repair_raw_encoding.py` | raw の文字化け日を netkeiba から再取得 |
+| `python scripts/fix_csv_date_format.py` | raw の着差「○月○日」→ `○/○` 修復 |
 
 ---
 
@@ -207,6 +212,8 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 - **印表**: モデル確率（T=6・レース内相対）、勝率・連対率（予想日より前の園田成績）
 - **`run_today.py`**: 実行日の `fetch_daily` + LINE 成否通知
 - UI 本体を `src/predictor/predict_ui_app.py` に移動（UTF-16 化対策）
+- **R 分析用 `r_analysis/` 追加**（Python 予想コードは未変更）→ **§11**
+- **データ品質（2026-06-04）**: nar.netkeiba UTF-8 対応・6/3 raw 再取得・着差正規化 → **§11.3**
 
 ### 6/3 当日 — オペレーション（これで足りる）
 
@@ -235,6 +242,19 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 
 - `build_features.py` — 脚質キャッシュ 3756 件を master に未反映なら実行
 - `python scripts/backfill_race_meta.py` — 馬柱のペース・通過均が充実（当日必須ではない）
+- **R 分析** — `r_analysis/` で特徴量と勝率の関係を確認（§11）。的中率改善の仮説出し用
+
+### R 分析（自宅 PC 向け・2026-06-04 追加）
+
+| 項目 | 内容 |
+|------|------|
+| フォルダ | `r_analysis/`（Git 管理・データ CSV は従来どおり .gitignore） |
+| 入力 | `data/processed/horses_master.csv` |
+| 初回 | `install.packages("tidyverse")` |
+| 実行 | `Rscript r_analysis/scripts/01_run_baseline.R` → `02_run_models.R` |
+| 詳細 | **§11**、`r_analysis/README.md` |
+
+環境変数 `SONODA_KEIBA_ROOT` にリポジトリルートを指定するとパス検出が確実。
 
 ### 注意
 
@@ -264,6 +284,10 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 15. **UTF-16 対策**: UI 本体 `src/predictor/predict_ui_app.py`、起動は ASCII のみ `app/predict_app.py`
 16. **`run_today.py`**: 本日 `fetch_daily` + LINE（`tools/line_bot.py`）
 17. **`.editorconfig`**: charset utf-8
+18. **データ文字化け修正**: `src/scraper/client.py` — `Content-Type: charset=UTF-8` を優先（旧 EUC-JP 固定を廃止）
+19. **着差正規化**: `src/storage/csv_store.py` — `normalize_margin_value`（`3月4日` / ISO 日付 → `3/4`）
+20. **6/3 raw 再取得**: `horses_20260603.csv` 修復済み → `build_features.py` で master 反映済み
+21. **`r_analysis/`**: R 用探索スクリプト一式（§11）
 
 ---
 
@@ -441,6 +465,102 @@ python scripts/predict.py --date 20260603
 - 表示ロジック参考: `scripts/predict.py` の `_print_predictions`
 - Agent 共通: ルート `AGENTS.md`
 
-*最終更新: 2026-06-02（6/3 向け UI・馬柱・run_today を反映）。*
+---
+
+## 11. R 分析（`r_analysis/`）— 的中率探索・引き継ぎ
+
+**作成:** 2026-06-04（会社 / OneDrive PC）  
+**目的:** Python の馬券ロジック（`bets.py` 等）は**触らず**、`horses_master.csv` を R で読み、単勝率・3着内率と特徴量の関係を探索する。的中率改善の仮説 → 必要なら Python 側重み・閾値へ反映、という流れ用。
+
+### 11.1 `horses_master.csv` と `horses_features.csv`
+
+| ファイル | 内容 |
+|----------|------|
+| `data/raw/horses_YYYYMMDD.csv` | netkeiba 生データ（日本語ヘッダー・着差は `="3/4"` 形式で Excel 日付化を防止） |
+| **`horses_master.csv`** | 全 raw 結合 + **特徴量列付与**（`build_features.py`）。**R 分析・予想の本体** |
+| `horses_features.csv` | **中身は master と同一**（歴史的に2ファイル出力しているだけ） |
+
+特徴量は「そのレースより前」の成績のみ（リーク防止）。列名は英語（`horse_win_rate`, `last3_avg_finish` 等）。
+
+### 11.2 フォルダ構成
+
+```
+r_analysis/
+  README.md              … 実行方法（英語）
+  README_ja.md           … 日本語メモ（あれば）
+  config/settings.R      … ANALYSIS_DATE_FROM 等（既定 20240101〜）
+  R/                     … load / 集計 / glm 関数
+  scripts/
+    bootstrap.R          … パス解決 + source 一式
+    01_run_baseline.R    … 集計 CSV
+    02_run_models.R      … ロジスティック
+    run_all.R            … 一括
+  output/                … 結果（.gitignore）
+```
+
+**既存 Python ファイルは書き換えていない**（追加のみ: `r_analysis/`, `scripts/repair_raw_encoding.py`, データ修復用スクリプトの整理）。
+
+### 11.3 データ品質（R 分析前に実施済み・2026-06-04）
+
+| 問題 | 原因 | 対応 |
+|------|------|------|
+| 6/3 馬名・騎手が文字化け | nar.netkeiba が **UTF-8** 化したのに取得が **EUC-JP 固定** | `src/scraper/client.py` で `Content-Type` / meta charset 優先 |
+| 着差が「3月4日」等 | Excel が `3/4` を日付化 | `normalize_margin_value` in `csv_store.py` + `fix_csv_date_format.py` |
+| master に 6/3 未反映 | 上記の壊れた raw | `repair_raw_encoding.py` / `fetch_races.py --date 20260603 --save` → `build_features.py` |
+
+**注意:** `horses_master.csv` を Excel で開いて保存しない（再文字化け・着差崩れ）。
+
+### 11.4 自宅 PC でのセットアップ
+
+```powershell
+cd "C:\Users\akimi\Desktop\プログラミング\sonoda-keiba-program"   # 自宅パス例
+# data/processed/horses_master.csv を iCloud 等から配置（Git には含まれない）
+```
+
+R が未インストールなら [CRAN](https://cran.r-project.org/) から導入。
+
+```r
+install.packages("tidyverse")
+```
+
+```powershell
+$env:SONODA_KEIBA_ROOT = "C:\Users\akimi\Desktop\プログラミング\sonoda-keiba-program"
+Rscript r_analysis/scripts/01_run_baseline.R
+Rscript r_analysis/scripts/02_run_models.R
+```
+
+### 11.5 出力と見方
+
+| 出力 | 意味 |
+|------|------|
+| `output/tables/baseline_overall.csv` | 全体 `win_rate` / `top3_rate` |
+| `output/tables/winrate_by_race_class.csv` | クラス別 |
+| `output/tables/winrate_by_popularity_bin.csv` | 人気帯別 |
+| `output/tables/winrate_by_odds_bin.csv` | オッズ帯別 |
+| `output/tables/decile_winrate_*.csv` | 特徴量デシル別（どの水準で勝ちやすいか） |
+| `output/models/logistic_win_coefficients.csv` | 1着 glm の係数・`odds_ratio` |
+
+R 側で追加した列:
+
+- `is_win` … 1着（単勝の当たり率分析用）
+- `is_top3` … 3着以内（複勝・三連系の材料）
+- `margin_lengths` … 着差の馬身相当（`3/4`, `ハナ` 等を数値化）
+
+期間変更: `r_analysis/config/settings.R` の `ANALYSIS_DATE_FROM` / `ANALYSIS_DATE_TO`。
+
+### 11.6 今後の R 作業案（未着手）
+
+- `payback_cache.json` と結合した **ROI 帯分析**（回収率）
+- 堅/荒ラベル（Python `detect_win_profile` 相当）を R で再現しセグメント別勝率
+- 特徴量重要度 → `tuned_weights_style.json` / `sanrenpuku` への反映は**手動判断**（自動書き込みはしない）
+- 予想印・実着順のキャリブレーション（UI ログがあれば）
+
+### 11.7 関連テスト
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_client.py tests/test_csv_store.py -q
+```
+
+*最終更新: 2026-06-04（R 分析 `r_analysis/`・データ UTF-8/着差修復を反映）。*
 
 *大きな方針変更があったらこのファイルを更新すること。*
