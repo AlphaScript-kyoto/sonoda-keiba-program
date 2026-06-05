@@ -41,6 +41,11 @@ _write_impl.py
 _pull_backup/
 assets/
 
+# --- R / RStudio ---
+.Rhistory
+.RData
+.Rproj.user
+
 # --- IDE (share tasks.json only) ---
 .idea/
 .vscode/*

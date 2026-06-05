@@ -510,24 +510,21 @@ r_analysis/
 
 **注意:** `horses_master.csv` を Excel で開いて保存しない（再文字化け・着差崩れ）。
 
-### 11.4 自宅 PC でのセットアップ
+### 11.4 RStudio セットアップ
+
+1. **`sonoda-keiba-program.Rproj`** を開く（ルートの `.Rprofile` がパスを自動設定）
+2. R コンソール: `install.packages(c("tidyverse", "jsonlite"))`
+3. `source("r_analysis/scripts/00_setup.R")` でデータ・パッケージ確認
+4. `source("r_analysis/scripts/run_all.R")` で一括実行
+
+詳細: **`r_analysis/README_ja.md`**
 
 ```powershell
-cd "C:\Users\akimi\Desktop\プログラミング\sonoda-keiba-program"   # 自宅パス例
-# data/processed/horses_master.csv を iCloud 等から配置（Git には含まれない）
+# ターミナルからも可
+Rscript r_analysis/scripts/run_all.R
 ```
 
-R が未インストールなら [CRAN](https://cran.r-project.org/) から導入。
-
-```r
-install.packages("tidyverse")
-```
-
-```powershell
-$env:SONODA_KEIBA_ROOT = "C:\Users\akimi\Desktop\プログラミング\sonoda-keiba-program"
-Rscript r_analysis/scripts/01_run_baseline.R
-Rscript r_analysis/scripts/02_run_models.R
-```
+`data/processed/horses_master.csv` は Git 外（iCloud 等で同期）。回収率分析には `payback_cache.json` も使用（`03_roi_baseline.R`）。
 
 ### 11.5 出力と見方
 
@@ -548,9 +545,10 @@ R 側で追加した列:
 
 期間変更: `r_analysis/config/settings.R` の `ANALYSIS_DATE_FROM` / `ANALYSIS_DATE_TO`。
 
-### 11.6 今後の R 作業案（未着手）
+### 11.6 今後の R 作業案
 
-- `payback_cache.json` と結合した **ROI 帯分析**（回収率）
+- **着手済み:** `payback_cache.json` 結合の **ROI 帯分析**（`R/07_payback_roi.R`, `03_roi_baseline.R`）
+- **未着手:**
 - 堅/荒ラベル（Python `detect_win_profile` 相当）を R で再現しセグメント別勝率
 - 特徴量重要度 → `tuned_weights_style.json` / `sanrenpuku` への反映は**手動判断**（自動書き込みはしない）
 - 予想印・実着順のキャリブレーション（UI ログがあれば）
