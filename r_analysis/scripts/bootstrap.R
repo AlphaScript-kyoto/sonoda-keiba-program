@@ -1,17 +1,13 @@
 bootstrap_r_analysis <- function() {
-  args <- commandArgs(trailingOnly = FALSE)
-  file_arg <- grep("^--file=", args, value = TRUE)
-  script_dir <- if (length(file_arg) > 0) {
-    dirname(normalizePath(sub("^--file=", "", file_arg[1]), winslash = "/"))
-  } else {
-    getwd()
+  if (!exists("PROJECT_ROOT", inherits = TRUE)) {
+    config_path <- file.path(getwd(), "r_analysis", "config", "settings.R")
+    if (!file.exists(config_path)) {
+      stop(
+        "Open sonoda-keiba-program.Rproj or set SONODA_KEIBA_ROOT to the repo root."
+      )
+    }
+    source(config_path, encoding = "UTF-8")
   }
-  config_path <- normalizePath(
-    file.path(script_dir, "..", "config", "settings.R"),
-    winslash = "/",
-    mustWork = TRUE
-  )
-  source(config_path, encoding = "UTF-8")
   source(
     file.path(PROJECT_ROOT, "r_analysis", "R", "00_source_all.R"),
     encoding = "UTF-8"

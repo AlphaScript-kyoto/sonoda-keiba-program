@@ -1,12 +1,6 @@
-source(
-  file.path(dirname(normalizePath(
-    sub("^--file=", "", grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)[1]),
-    winslash = "/"
-  )), "bootstrap.R"),
-  encoding = "UTF-8"
-)
+source("r_analysis/config/settings.R", encoding = "UTF-8")
+source(file.path(PROJECT_ROOT, "r_analysis", "scripts", "bootstrap.R"), encoding = "UTF-8")
 bootstrap_r_analysis()
-
 scripts_dir <- file.path(PROJECT_ROOT, "r_analysis", "scripts")
 source(file.path(scripts_dir, "01_run_baseline.R"), local = FALSE)
 source(file.path(scripts_dir, "02_run_models.R"), local = FALSE)
