@@ -4,6 +4,14 @@ require_packages <- function() {
   }
 }
 
+MASTER_COL_TYPES <- readr::cols(
+  race_id = readr::col_character(),
+  horse_id = readr::col_character(),
+  umaban = readr::col_character(),
+  date = readr::col_character(),
+  .default = readr::col_guess()
+)
+
 load_master_raw <- function() {
   require_packages()
   if (!file.exists(MASTER_CSV)) {
@@ -11,6 +19,7 @@ load_master_raw <- function() {
   }
   readr::read_csv(
     MASTER_CSV,
+    col_types = MASTER_COL_TYPES,
     locale = readr::locale(encoding = "UTF-8"),
     show_col_types = FALSE,
     progress = FALSE
