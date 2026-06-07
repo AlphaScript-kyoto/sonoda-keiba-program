@@ -37,3 +37,22 @@ ensure_output_dirs <- function() {
   dir.create(TABLES_DIR, recursive = TRUE, showWarnings = FALSE)
   dir.create(MODELS_DIR, recursive = TRUE, showWarnings = FALSE)
 }
+BACKTEST_ROWS_CSV <- file.path(PROJECT_ROOT, "r_analysis", "input", "backtest_rows.csv")
+DECILE_EXTENDED_FEATURES <- c(
+  "horse_win_rate_track",
+  "trainer_win_rate",
+  "last5_avg_finish",
+  "style_track_win_rate",
+  "waku_distance_win_rate",
+  "last3_avg_style_score",
+  "jockey_trainer_roi",
+  "pace_style_fit",
+  "sonoda_waku_style_fit",
+  "sonoda_front_bonus",
+  "dam_sire_win_rate",
+  "entry_head_count",
+  "last_body_weight_delta",
+  "last3_avg_time_index",
+  "horse_best_time_index",
+  "body_weight_vs_avg"
+)

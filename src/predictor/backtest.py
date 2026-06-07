@@ -31,6 +31,8 @@ from src.predictor.bets import (
     is_volatile_race,
     is_high_confidence,
     matches_threshold,
+    should_skip_win_bet,
+    _parse_odds_value,
 )
 from src.predictor.scoring_config import ScoringConfig, load_split_scoring_configs
 from src.predictor.score import load_master, predict_date, set_scoring_config
@@ -131,6 +133,7 @@ class _RaceRecord:
     is_volatile: bool = False
     exotic_high: bool = False
     win_high: bool = False
+    pred_odds: float = float("nan")
 
 
 def _finish_order(race_df: pd.DataFrame) -> List[str]:
@@ -251,6 +254,7 @@ def _collect_race_records(
 
             winner_row = actual.loc[actual["umaban"].astype(str) == pred_u]
             odds = winner_row["odds"].iloc[0] if not winner_row.empty else ""
+            pred_odds = _parse_odds_value(odds)
 
             nagashi = build_sanrenpuku_nagashi(top5)
             box = build_sanrenpuku_box(
@@ -258,6 +262,7 @@ def _collect_race_records(
                 ex_group,
                 core_count=strategy.upset_box_core,
                 extra_longshots=strategy.upset_longshot_count,
+                max_longshot_odds=strategy.longshot_max_odds,
             )
             formation = build_sanrentan_formation(top5)
             wide_firm = build_wide_formation(top5)
@@ -315,6 +320,7 @@ def _collect_race_records(
                     is_volatile=volatile,
                     exotic_high=False,
                     win_high=win_high,
+                    pred_odds=pred_odds,
                 )
             )
 
@@ -362,7 +368,7 @@ def _aggregate_records(
             prob_gap=rec.prob_gap,
         )
 
-        skip_win = rec.win_profile == "荒" and strategy.skip_win_on_upset
+        skip_win = should_skip_win_bet(rec.win_profile, rec.pred_odds, strategy)
         if not skip_win:
             report.win_pick.races += 1
             report.win_pick.points += 1

@@ -9,3 +9,10 @@ if (file.exists(PAYBACK_CACHE_JSON)) {
 } else {
   message("Skip ROI: payback_cache.json not found")
 }
+source(file.path(scripts_dir, "04_segment_analysis.R"), local = FALSE)
+source(file.path(scripts_dir, "05_decile_extended.R"), local = FALSE)
+if (file.exists(PAYBACK_CACHE_JSON)) {
+  source(file.path(scripts_dir, "06_bet_like_roi.R"), local = FALSE)
+} else {
+  message("Skip bet-like ROI: payback_cache.json not found")
+}

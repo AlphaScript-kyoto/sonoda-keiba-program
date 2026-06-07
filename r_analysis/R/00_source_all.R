@@ -12,5 +12,8 @@ source_project(
   "04_winrate_by_bins.R",
   "05_logistic_win.R",
   "06_feature_deciles.R",
-  "07_payback_roi.R"
+  "07_payback_roi.R",
+  "08_race_segments.R",
+  "09_decile_extended.R",
+  "10_bet_like_roi.R"
 )

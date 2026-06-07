@@ -1,0 +1,10 @@
+source("r_analysis/config/settings.R", encoding = "UTF-8")
+source(file.path(PROJECT_ROOT, "r_analysis", "scripts", "bootstrap.R"), encoding = "UTF-8")
+bootstrap_r_analysis()
+
+ensure_output_dirs()
+message("Loading master for extended deciles...")
+df <- load_master_filtered()
+message("Rows: ", nrow(df))
+save_extended_decile_tables(df)
+message("Done. See decile_winrate_*.csv and decile_gap_summary.csv")

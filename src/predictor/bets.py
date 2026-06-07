@@ -74,9 +74,12 @@ class BetStrategyConfig:
     fav_odds_upset: float = 3.0
     upset_score_min: int = 3
     upset_box_core: int = 4
-    upset_longshot_count: int = 2
+    upset_longshot_count: int = 1
     skip_win_on_upset: bool = True
     skip_place_on_upset: bool = True
+    # R分析: 50倍超は回収率40%台 → 単勝・BOX穴馬から除外
+    win_max_pred_odds: float = 25.0
+    longshot_max_odds: float = 50.0
     # 単勝用プロファイル（厳しめ: 見送り判定）
     win_fav_odds_skip: float = 3.0
     win_upset_score_min: int = 4
@@ -430,10 +433,30 @@ def detect_race_profile(
     return detect_exotic_profile(sig, strategy), sig.fav_odds, sig.upset_score
 
 
+def _parse_odds_value(odds) -> float:
+    val = pd.to_numeric(odds, errors="coerce")
+    return float(val) if pd.notna(val) else float("nan")
+
+
+def should_skip_win_bet(
+    win_profile: str,
+    pred_odds: float,
+    strategy: BetStrategyConfig = DEFAULT_STRATEGY,
+) -> bool:
+    """単勝を買わない条件（荒れ見送り + 高配当◎見送り）。"""
+    if win_profile == "荒" and strategy.skip_win_on_upset:
+        return True
+    if pd.notna(pred_odds) and pred_odds > strategy.win_max_pred_odds:
+        return True
+    return False
+
+
 def _pick_exotic_longshots(
     scored_race: pd.DataFrame,
     core_umaban: set[str],
     count: int,
+    *,
+    max_odds: float = DEFAULT_STRATEGY.longshot_max_odds,
 ) -> pd.DataFrame:
     """三連複BOX用の穴馬。オッズ穴とモデル中位を混在させる。"""
     if count <= 0:
@@ -447,6 +470,8 @@ def _pick_exotic_longshots(
 
     rest["odds_n"] = pd.to_numeric(rest.get("odds", pd.Series(dtype=float)), errors="coerce")
     rest["rank_n"] = pd.to_numeric(rest.get("rank_pred", pd.Series(dtype=float)), errors="coerce")
+    if pd.notna(max_odds):
+        rest = rest[rest["odds_n"].isna() | (rest["odds_n"] <= max_odds)]
 
     by_odds = rest.nlargest(max(1, (count + 1) // 2), "odds_n")
     remaining = rest[~rest.index.isin(by_odds.index)]
@@ -483,6 +508,7 @@ def build_sanrenpuku_box(
     *,
     core_count: int = 5,
     extra_longshots: int = 0,
+    max_longshot_odds: float = DEFAULT_STRATEGY.longshot_max_odds,
 ) -> Optional[SanrenpukuBox]:
     """予想上位 core_count 頭＋任意で穴馬を足した三連複BOX。"""
     if len(top5) < 3:
@@ -492,7 +518,12 @@ def build_sanrenpuku_box(
     horses = top5.iloc[:core_n].copy()
     selected_u = {str(u) for u in horses["umaban"]}
     if extra_longshots > 0:
-        longs = _pick_exotic_longshots(scored_race, selected_u, extra_longshots)
+        longs = _pick_exotic_longshots(
+            scored_race,
+            selected_u,
+            extra_longshots,
+            max_odds=max_longshot_odds,
+        )
         if not longs.empty:
             horses = pd.concat([horses, longs], ignore_index=True)
 
@@ -602,8 +633,12 @@ def build_race_bet_plan(
         post_time=post_time,
     )
 
-    if win_profile == "荒" and st.skip_win_on_upset and win_high:
-        plan.confidence = "通常（荒れ・単勝見送り）"
+    top_odds = _parse_odds_value(scored_race.sort_values("rank_pred").iloc[0].get("odds", float("nan")))
+    if win_high and should_skip_win_bet(win_profile, top_odds, st):
+        if win_profile == "荒" and st.skip_win_on_upset:
+            plan.confidence = "通常（荒れ・単勝見送り）"
+        elif pd.notna(top_odds) and top_odds > st.win_max_pred_odds:
+            plan.confidence = f"通常（◎{top_odds:.0f}倍・単勝見送り）"
 
     if not exotic_high:
         return _finalize_plan(plan)
@@ -622,6 +657,7 @@ def build_race_bet_plan(
             ex_race,
             core_count=st.upset_box_core,
             extra_longshots=st.upset_longshot_count,
+            max_longshot_odds=st.longshot_max_odds,
         )
         plan.wide = build_wide_formation_upset(top5)
 

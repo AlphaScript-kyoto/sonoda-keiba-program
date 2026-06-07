@@ -32,12 +32,21 @@ if (file.exists(PAYBACK_CACHE_JSON)) {
   message("       fetch: .\\.venv\\Scripts\\python.exe scripts/fetch_paybacks.py --from YYYYMMDD --to YYYYMMDD")
 }
 
+if (file.exists(BACKTEST_ROWS_CSV)) {
+  message("[OK] backtest_rows.csv (segment analysis)")
+} else {
+  message("[WARN] backtest_rows.csv missing - run export_backtest_for_r.py for (1)")
+}
+
 if (pkgs_ok) {
   message("")
   message("Ready. Next:")
   message('  source("r_analysis/scripts/01_run_baseline.R")')
   message('  source("r_analysis/scripts/02_run_models.R")')
   message('  source("r_analysis/scripts/03_roi_baseline.R")')
+  message('  source("r_analysis/scripts/04_segment_analysis.R")')
+  message('  source("r_analysis/scripts/05_decile_extended.R")')
+  message('  source("r_analysis/scripts/06_bet_like_roi.R")')
   message('  source("r_analysis/scripts/run_all.R")')
 } else {
   message("")
