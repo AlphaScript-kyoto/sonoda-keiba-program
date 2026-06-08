@@ -39,8 +39,16 @@ def records_to_export_df(records, *, strategy=DEFAULT_STRATEGY) -> pd.DataFrame:
         place_return = rec.place_payout if (not skip_place and rec.place_hit) else 0
 
         if exotic_high and rec.exotic_profile == FIRM:
-            sp_pts = rec.sanrenpuku_points
-            sp_hit = rec.sanrenpuku_hit
+            if (
+                rec.is_volatile
+                and strategy.use_firm_volatile_box
+                and rec.sanrenpuku_firm_box_points
+            ):
+                sp_pts = rec.sanrenpuku_firm_box_points
+                sp_hit = rec.sanrenpuku_firm_box_hit
+            else:
+                sp_pts = rec.sanrenpuku_points
+                sp_hit = rec.sanrenpuku_hit
             st_pts = rec.sanrentan_points
             st_hit = rec.sanrentan_hit
             if rec.is_volatile:

@@ -40,6 +40,8 @@ def test_parse_fixture():
     assert row4["last_3f"] == "44.1"
     assert row4["waku"] == "6"
     assert row4["umaban"] == "6"
+    assert rows[0]["jockey_id"] == "00894"
+    assert rows[0]["trainer_id"] == "a0242"
 
 
 if __name__ == "__main__":

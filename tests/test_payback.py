@@ -24,3 +24,5 @@ def test_parse_race_payback():
     assert pb.wide["3-9"] == 390
     assert pb.wide["7-9"] == 1020
     assert pb.wide["3-7"] == 3030
+    assert pb.umaren["3-9"] == 610
+    assert pb.umatan["9-3"] == 980

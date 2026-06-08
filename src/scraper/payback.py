@@ -26,6 +26,8 @@ class RacePayback:
     tan3_umaban: Tuple[str, str, str]
     tan3_yen: int
     wide: Dict[str, int] = field(default_factory=dict)  # "3-9" -> yen
+    umaren: Dict[str, int] = field(default_factory=dict)  # "3-9" -> yen
+    umatan: Dict[str, int] = field(default_factory=dict)  # "9-3" ordered -> yen
 
 
 def _parse_yen(text: str) -> int:
@@ -115,6 +117,8 @@ def parse_race_payback(html: str, race_id: str) -> Optional[RacePayback]:
     tan3_umaban: Tuple[str, str, str] = ("", "", "")
     tan3_yen = 0
     wide: Dict[str, int] = {}
+    umaren: Dict[str, int] = {}
+    umatan: Dict[str, int] = {}
 
     for tr in soup.select("table.Payout_Detail_Table tr"):
         classes = tr.get("class") or []
@@ -146,6 +150,17 @@ def parse_race_payback(html: str, race_id: str) -> Optional[RacePayback]:
                 tan3_yen = pays[0]
         elif "Wide" in cls:
             wide = _parse_wide(result_td, payout_td)
+        elif "Umaren" in cls:
+            nums = _umaban_from_result_td(result_td)
+            pays = _payout_values(payout_td)
+            if len(nums) >= 2 and pays:
+                umaren_key = _wide_pair_key(nums[0], nums[1])
+                umaren[umaren_key] = pays[0]
+        elif "Umatan" in cls:
+            nums = _umaban_from_result_td(result_td)
+            pays = _payout_values(payout_td)
+            if len(nums) >= 2 and pays:
+                umatan[f"{nums[0]}-{nums[1]}"] = pays[0]
 
     if not tansho and not fuku3_yen:
         return None
@@ -159,6 +174,8 @@ def parse_race_payback(html: str, race_id: str) -> Optional[RacePayback]:
         tan3_umaban=tan3_umaban,
         tan3_yen=tan3_yen,
         wide=wide,
+        umaren=umaren,
+        umatan=umatan,
     )
 
 
@@ -194,6 +211,8 @@ def payback_from_dict(d: dict) -> RacePayback:
         tan3_umaban=tuple(d.get("tan3_umaban", ("", "", ""))),
         tan3_yen=int(d.get("tan3_yen", 0)),
         wide={str(k): int(v) for k, v in d.get("wide", {}).items()},
+        umaren={str(k): int(v) for k, v in d.get("umaren", {}).items()},
+        umatan={str(k): int(v) for k, v in d.get("umatan", {}).items()},
     )
 
 

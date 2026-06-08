@@ -117,6 +117,8 @@ class HorseStyleEntry:
     running_style: str
     corner_pos_avg: float
     corner_pos_1: float = 0.0
+    corner_pos_2: float = 0.0
+    corner_pos_3: float = 0.0
     corner_pos_4: float = 0.0
 
 
@@ -143,12 +145,16 @@ def build_race_style_from_corners(
         positions = list(corners.values())
         avg = sum(positions) / len(positions)
         c1 = float(corners.get(1, avg))
+        c2 = float(corners.get(2, avg))
+        c3 = float(corners.get(3, avg))
         c4 = float(corners.get(4, corners.get(max(corners.keys()), avg)))
         style = classify_style_from_corner_avg(c1)
         horses[umaban] = HorseStyleEntry(
             running_style=style,
             corner_pos_avg=round(avg, 2),
             corner_pos_1=c1,
+            corner_pos_2=c2,
+            corner_pos_3=c3,
             corner_pos_4=c4,
         )
     return RaceStyleData(race_id=race_id, horses=horses)

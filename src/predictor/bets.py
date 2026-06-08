@@ -53,11 +53,11 @@ DEFAULT_EXOTIC_FIRM_THRESHOLDS = ConfidenceThresholds(
     mode="and",
 )
 
-# 三連系（荒れレース）: 勝率を厳しめ・gap 緩め（Q1 2026 チューニング）
+# 三連系（荒れレース）: R分析で荒BOX ROI 88%+ → やや緩め（単独検証済み方針）
 DEFAULT_EXOTIC_UPSET_THRESHOLDS = ConfidenceThresholds(
-    win_prob=0.82,
+    win_prob=0.80,
     win_prob_alt=0.75,
-    prob_gap=0.50,
+    prob_gap=0.48,
     mode="and",
 )
 
@@ -96,6 +96,9 @@ class BetStrategyConfig:
     exotic_upset: ConfidenceThresholds = DEFAULT_EXOTIC_UPSET_THRESHOLDS
     win: ConfidenceThresholds = DEFAULT_WIN_THRESHOLDS
     split_scoring: bool = True
+    # 堅+ボラティリティ: 上位4頭BOX（バックテストで要検証、既定は流し）
+    use_firm_volatile_box: bool = False
+    firm_volatile_sanren_box_core: int = 4
 
 
 DEFAULT_STRATEGY = BetStrategyConfig()
@@ -644,12 +647,19 @@ def build_race_bet_plan(
         return _finalize_plan(plan)
 
     if exotic_profile == "堅":
-        plan.sanrenpuku = build_sanrenpuku_nagashi(top5)
+        volatile = is_volatile_race(signals_ex, st)
+        if volatile and st.use_firm_volatile_box:
+            plan.sanrenpuku_box = build_sanrenpuku_box(
+                top5,
+                ex_race,
+                core_count=st.firm_volatile_sanren_box_core,
+                extra_longshots=0,
+            )
+        else:
+            plan.sanrenpuku = build_sanrenpuku_nagashi(top5)
         plan.sanrentan = build_sanrentan_formation(top5)
         plan.wide = (
-            build_wide_formation_upset(top5)
-            if is_volatile_race(signals_ex, st)
-            else build_wide_formation(top5)
+            build_wide_formation_upset(top5) if volatile else build_wide_formation(top5)
         )
     else:
         plan.sanrenpuku_box = build_sanrenpuku_box(

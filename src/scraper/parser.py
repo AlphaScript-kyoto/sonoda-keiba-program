@@ -14,6 +14,8 @@ _NO_RESULT_MARKERS = (
 )
 
 _HORSE_ID_RE = re.compile(r"/horse/([^/?#]+)/?", re.I)
+_JOCKEY_ID_RE = re.compile(r"/jockey/result/recent/([^/?#]+)/?", re.I)
+_TRAINER_ID_RE = re.compile(r"/trainer/result/recent/([^/?#]+)/?", re.I)
 
 
 def has_result_table(html: str) -> bool:
@@ -39,6 +41,11 @@ def _parse_finish(cell) -> Optional[int]:
     if text.isdigit():
         return int(text)
     return None
+
+
+def _parse_person_id(href: str, pattern: re.Pattern[str]) -> str:
+    m = pattern.search(href or "")
+    return m.group(1) if m else ""
 
 
 def _parse_horse_link(horse_a) -> tuple[str, str]:
@@ -268,6 +275,8 @@ def parse_race_result(html: str, race_id: str) -> List[Dict[str, Any]]:
         jockey_a = tr.select_one("td.Jockey a")
         trainer_a = tr.select_one("td.Trainer a")
         waku, umaban = _parse_waku_umaban(tr)
+        jockey_href = jockey_a.get("href", "") if jockey_a else ""
+        trainer_href = trainer_a.get("href", "") if trainer_a else ""
 
         row: Dict[str, Any] = {
             "race_id": race_id,
@@ -296,8 +305,11 @@ def parse_race_result(html: str, race_id: str) -> List[Dict[str, Any]]:
             "race_condition": race_meta["race_condition"],
             "race_class": race_meta["race_class"],
             "race_name": race_meta["race_name"],
+            "post_time": race_meta.get("post_time", ""),
             "jockey": _text(jockey_a),
             "trainer": _text(trainer_a),
+            "jockey_id": _parse_person_id(jockey_href, _JOCKEY_ID_RE),
+            "trainer_id": _parse_person_id(trainer_href, _TRAINER_ID_RE),
         }
         rows.append(row)
 

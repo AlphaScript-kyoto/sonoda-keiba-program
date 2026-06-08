@@ -6,9 +6,9 @@
     "mode": "and"
   },
   "exotic_upset": {
-    "win_prob": 0.82,
+    "win_prob": 0.8,
     "win_prob_alt": 0.75,
-    "prob_gap": 0.5,
+    "prob_gap": 0.48,
     "mode": "and"
   },
   "q1_sanren_roi": 0.6167706708268331,

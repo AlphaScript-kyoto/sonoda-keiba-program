@@ -115,9 +115,11 @@ class _RaceRecord:
     place_payout: int
     sanrenpuku_points: int
     sanrenpuku_box_points: int
+    sanrenpuku_firm_box_points: int
     sanrentan_points: int
     sanrenpuku_hit: bool
     sanrenpuku_box_hit: bool
+    sanrenpuku_firm_box_hit: bool
     sanrentan_hit: bool
     wide_firm_points: int
     wide_upset_points: int
@@ -257,6 +259,16 @@ def _collect_race_records(
             pred_odds = _parse_odds_value(odds)
 
             nagashi = build_sanrenpuku_nagashi(top5)
+            firm_box = (
+                build_sanrenpuku_box(
+                    top5,
+                    ex_group,
+                    core_count=strategy.firm_volatile_sanren_box_core,
+                    extra_longshots=0,
+                )
+                if strategy.use_firm_volatile_box
+                else None
+            )
             box = build_sanrenpuku_box(
                 top5,
                 ex_group,
@@ -269,6 +281,9 @@ def _collect_race_records(
             wide_upset = build_wide_formation_upset(top5)
 
             sp_hit = check_sanrenpuku_hit(nagashi, finish) if nagashi else False
+            firm_box_hit = (
+                check_sanrenpuku_box_hit(firm_box, finish) if firm_box else False
+            )
             box_hit = check_sanrenpuku_box_hit(box, finish) if box else False
             st_hit = check_sanrentan_hit(formation, finish) if formation else False
             wd_firm_ret = 0
@@ -302,9 +317,11 @@ def _collect_race_records(
                     place_payout=_place_payout_yen(pred_u, pb),
                     sanrenpuku_points=nagashi.points if nagashi else 0,
                     sanrenpuku_box_points=box.points if box else 0,
+                    sanrenpuku_firm_box_points=firm_box.points if firm_box else 0,
                     sanrentan_points=formation.points if formation else 0,
                     sanrenpuku_hit=sp_hit,
                     sanrenpuku_box_hit=box_hit,
+                    sanrenpuku_firm_box_hit=firm_box_hit,
                     sanrentan_hit=st_hit,
                     wide_firm_points=wide_firm.points if wide_firm else 0,
                     wide_upset_points=wide_upset.points if wide_upset else 0,
@@ -388,8 +405,16 @@ def _aggregate_records(
 
         if exotic_high:
             if rec.exotic_profile == "堅":
-                sp_pts = rec.sanrenpuku_points
-                sp_hit = rec.sanrenpuku_hit
+                if (
+                    rec.is_volatile
+                    and strategy.use_firm_volatile_box
+                    and rec.sanrenpuku_firm_box_points
+                ):
+                    sp_pts = rec.sanrenpuku_firm_box_points
+                    sp_hit = rec.sanrenpuku_firm_box_hit
+                else:
+                    sp_pts = rec.sanrenpuku_points
+                    sp_hit = rec.sanrenpuku_hit
                 st_pts = rec.sanrentan_points
                 st_hit = rec.sanrentan_hit
                 if rec.is_volatile:

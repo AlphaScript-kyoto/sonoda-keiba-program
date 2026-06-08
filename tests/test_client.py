@@ -9,6 +9,8 @@ sys.path.insert(0, str(ROOT))
 
 from src.scraper.client import (
     NetkeibaBlockedError,
+    _cjk_score,
+    _decode_response_bytes,
     _detect_encoding,
     build_request_headers,
     fetch_html,
@@ -45,6 +47,18 @@ def test_detect_encoding_uses_meta_euc_jp_when_no_header():
     )
     response.url = "https://nar.netkeiba.com/race/result.html?race_id=1"
     assert _detect_encoding(response) == "euc-jp"
+
+
+def test_decode_response_bytes_prefers_valid_japanese():
+    # UTF-8 label but CP932 body (odds page pattern)
+    body = (
+        b"<html><head><meta charset=UTF-8></head><body>"
+        b"<td class=\"Horse_Name\">\x83G\x83C\x83V\x83\x93\x83}\x83V\x81\x5b\x83\x93</td>"
+        b"</body></html>"
+    )
+    text = _decode_response_bytes(body, "utf-8")
+    assert "エイシンマシーン" in text
+    assert _cjk_score(text) >= 5
 
 
 def test_fetch_html_raises_on_400():

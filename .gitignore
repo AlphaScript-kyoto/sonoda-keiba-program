@@ -26,6 +26,9 @@ data/processed/*
 data/processed/payback_cache.json
 data/processed/race_lap_cache.json
 data/processed/bloodline_cache.json
+data/processed/odds_cache.json
+data/processed/people_cache.json
+data/processed/horse_profile_cache.json
 data/processed/marks_fav_exotic_cache.pkl
 data/processed/marks_fav_exotic_by_date/
 data/processed/refresh_log.txt

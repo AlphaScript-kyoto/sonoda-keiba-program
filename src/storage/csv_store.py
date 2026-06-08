@@ -19,6 +19,7 @@ REQUIRED_COLUMNS = [
     "margin",
     "weather",
     "race_class",
+    "jockey_id",
 ]
 
 HORSE_COLUMNS = [
@@ -50,6 +51,15 @@ HORSE_COLUMNS = [
     "race_name",
     "jockey",
     "trainer",
+    "jockey_id",
+    "trainer_id",
+    "post_time",
+    "place_odds",
+    "race_pace",
+    "corner_pos_1",
+    "corner_pos_2",
+    "corner_pos_3",
+    "corner_pos_4",
 ]
 
 HORSE_COLUMN_LABELS: Dict[str, str] = {
@@ -81,6 +91,15 @@ HORSE_COLUMN_LABELS: Dict[str, str] = {
     "race_name": "レース名",
     "jockey": "騎手",
     "trainer": "調教師",
+    "jockey_id": "騎手ID",
+    "trainer_id": "調教師ID",
+    "post_time": "発走時刻",
+    "place_odds": "複勝オッズ",
+    "race_pace": "ペース",
+    "corner_pos_1": "通過1",
+    "corner_pos_2": "通過2",
+    "corner_pos_3": "通過3",
+    "corner_pos_4": "通過4",
 }
 
 JAPANESE_TO_ENGLISH = {ja: en for en, ja in HORSE_COLUMN_LABELS.items()}

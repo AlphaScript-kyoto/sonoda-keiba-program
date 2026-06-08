@@ -115,6 +115,42 @@ def _charset_from_html_head(content: bytes) -> str | None:
     return None
 
 
+def _cjk_score(text: str, sample_len: int = 8000) -> int:
+    """日本語文字数（誤デコード検出用）。"""
+    sample = text[:sample_len]
+    score = len(re.findall(r"[\u3040-\u30ff\u4e00-\u9fff]", sample))
+    for bad in ("縺", "繧", "繝", "\ufffd"):
+        score -= sample.count(bad) * 5
+    return score
+
+
+def _decode_response_bytes(content: bytes, preferred: str | None) -> str:
+    """候補エンコーディングを試し、日本語スコア最大のデコードを返す。"""
+    ordered: list[str] = []
+    for enc in (
+        preferred,
+        _charset_from_html_head(content),
+        "utf-8",
+        "cp932",
+        "euc-jp",
+    ):
+        if enc and enc not in ordered:
+            ordered.append(enc)
+
+    best_text = ""
+    best_score = -10**9
+    for enc in ordered:
+        try:
+            text = content.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+        score = _cjk_score(text)
+        if score > best_score:
+            best_score = score
+            best_text = text
+    return best_text
+
+
 def _detect_encoding(response: requests.Response) -> str:
     """netkeiba の文字コードを判定（Content-Type / meta を優先。旧ページは EUC-JP）。"""
     content_type = (response.headers.get("Content-Type") or "").lower()
@@ -168,10 +204,14 @@ def fetch_html(url: str, *, respect_interval: bool = True) -> str:
                     response=response,
                 )
             response.raise_for_status()
-            response.encoding = _detect_encoding(response)
+            preferred = _detect_encoding(response)
+            text = _decode_response_bytes(response.content, preferred)
+            if not text:
+                response.encoding = preferred
+                text = response.text
             _last_request_at = time.monotonic()
             _next_interval_sec = _pick_interval()
-            return response.text
+            return text
         except NetkeibaBlockedError:
             raise
         except requests.RequestException as exc:

@@ -24,6 +24,7 @@ from src.storage.csv_store import read_horses_csv
 from src.features.constants import STYLE_FEATURE_COLUMNS
 from src.features.utils import jockey_trainer_pair_key, parse_distance_m
 from src.scraper.bloodline import load_bloodline_cache
+from src.scraper.odds import load_odds_cache
 from src.scraper.race_lap import load_lap_cache
 from src.scraper.running_style import load_style_cache, style_to_score
 
@@ -177,11 +178,17 @@ def _attach_race_meta_from_caches(df: pd.DataFrame) -> pd.DataFrame:
     style_cache = load_style_cache()
     lap_cache = load_lap_cache()
     blood_cache = load_bloodline_cache()
+    odds_cache = load_odds_cache()
 
     running_styles: list = []
     corner_avgs: list = []
+    corner_1: list = []
+    corner_2: list = []
+    corner_3: list = []
+    corner_4: list = []
     race_paces: list = []
     race_first3fs: list = []
+    place_odds: list = []
     sires: list = []
     dam_sires: list = []
 
@@ -193,10 +200,17 @@ def _attach_race_meta_from_caches(df: pd.DataFrame) -> pd.DataFrame:
         style_entry = style_cache.get(rid, {}).get("horses", {}).get(u, {})
         running_styles.append(style_entry.get("running_style", ""))
         corner_avgs.append(style_entry.get("corner_pos_avg", np.nan))
+        corner_1.append(style_entry.get("corner_pos_1", np.nan))
+        corner_2.append(style_entry.get("corner_pos_2", np.nan))
+        corner_3.append(style_entry.get("corner_pos_3", np.nan))
+        corner_4.append(style_entry.get("corner_pos_4", np.nan))
 
         lap = lap_cache.get(rid, {})
         race_paces.append(lap.get("pace", ""))
         race_first3fs.append(lap.get("first3f_sec", np.nan))
+
+        odds_entry = odds_cache.get(rid, {})
+        place_odds.append(odds_entry.get("place", {}).get(u, ""))
 
         bl = blood_cache.get(hid, {})
         sires.append(bl.get("sire", ""))
@@ -204,8 +218,13 @@ def _attach_race_meta_from_caches(df: pd.DataFrame) -> pd.DataFrame:
 
     out["running_style"] = running_styles
     out["corner_pos_avg"] = corner_avgs
+    out["corner_pos_1"] = corner_1
+    out["corner_pos_2"] = corner_2
+    out["corner_pos_3"] = corner_3
+    out["corner_pos_4"] = corner_4
     out["race_pace"] = race_paces
     out["race_first3f"] = race_first3fs
+    out["place_odds"] = place_odds
     out["sire"] = sires
     out["dam_sire"] = dam_sires
     return out
