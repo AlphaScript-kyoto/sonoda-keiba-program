@@ -163,7 +163,12 @@ def run_predict_day(
         )
         plans = _annotate_started_plans(
             date_yyyymmdd,
-            build_day_bet_plans(win_df, exotic_scored=exotic_df, strategy=DEFAULT_STRATEGY),
+            build_day_bet_plans(
+                win_df,
+                exotic_scored=exotic_df,
+                strategy=DEFAULT_STRATEGY,
+                master=master,
+            ),
             current,
         )
         return PredictDayResult(
@@ -245,6 +250,7 @@ def run_predict_day(
                 fresh_win_only,
                 exotic_scored=_exotic_for_build(fresh_win_only),
                 strategy=DEFAULT_STRATEGY,
+                master=master,
             )
             if not fresh_win_only.empty
             else []
@@ -256,7 +262,10 @@ def run_predict_day(
         plans = _annotate_started_plans(
             date_yyyymmdd,
             build_day_bet_plans(
-                win_df, exotic_scored=exotic_df, strategy=DEFAULT_STRATEGY
+                win_df,
+                exotic_scored=exotic_df,
+                strategy=DEFAULT_STRATEGY,
+                master=master,
             ),
             current,
         )

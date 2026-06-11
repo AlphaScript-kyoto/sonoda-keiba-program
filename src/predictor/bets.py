@@ -99,6 +99,7 @@ class BetStrategyConfig:
     # 堅+ボラティリティ: 上位4頭BOX（バックテストで要検証、既定は流し）
     use_firm_volatile_box: bool = False
     firm_volatile_sanren_box_core: int = 4
+    use_formation_247_on_upset: bool = False
 
 
 DEFAULT_STRATEGY = BetStrategyConfig()
@@ -592,6 +593,9 @@ def build_race_bet_plan(
     thresholds: Optional[ConfidenceThresholds] = None,
     strategy: Optional[BetStrategyConfig] = None,
     exotic_race: Optional[pd.DataFrame] = None,
+    *,
+    master: Optional[pd.DataFrame] = None,
+    before_date: str = "",
 ) -> RaceBetPlan:
     """1レース分の印・馬券案を生成（exotic_race で三連系スコアを分離可能）。"""
     st = strategy or DEFAULT_STRATEGY
@@ -662,13 +666,26 @@ def build_race_bet_plan(
             build_wide_formation_upset(top5) if volatile else build_wide_formation(top5)
         )
     else:
-        plan.sanrenpuku_box = build_sanrenpuku_box(
-            top5,
-            ex_race,
-            core_count=st.upset_box_core,
-            extra_longshots=st.upset_longshot_count,
-            max_longshot_odds=st.longshot_max_odds,
-        )
+        use_247 = False
+        if st.use_formation_247_on_upset and master is not None and before_date:
+            from src.predictor.formation_247 import (
+                build_sanrenpuku_247_box,
+                is_247_target_race,
+            )
+
+            if is_247_target_race(ex_race, signals_ex, exotic_profile=exotic_profile):
+                box_247 = build_sanrenpuku_247_box(ex_race, master, before_date)
+                if box_247 is not None:
+                    plan.sanrenpuku_box = box_247
+                    use_247 = True
+        if not use_247:
+            plan.sanrenpuku_box = build_sanrenpuku_box(
+                top5,
+                ex_race,
+                core_count=st.upset_box_core,
+                extra_longshots=st.upset_longshot_count,
+                max_longshot_odds=st.longshot_max_odds,
+            )
         plan.wide = build_wide_formation_upset(top5)
 
     return _finalize_plan(plan)
@@ -685,6 +702,8 @@ def build_day_bet_plans(
     thresholds: Optional[ConfidenceThresholds] = None,
     strategy: Optional[BetStrategyConfig] = None,
     exotic_scored: Optional[pd.DataFrame] = None,
+    *,
+    master: Optional[pd.DataFrame] = None,
 ) -> List[RaceBetPlan]:
     """日付全体のレースごと馬券案。"""
     if scored.empty:
@@ -700,7 +719,17 @@ def build_day_bet_plans(
     for _, group in scored.groupby("race_id", sort=False):
         rid = str(group["race_id"].iloc[0])
         ex_group = ex_by_race.get(rid) if ex_by_race else None
-        plans.append(build_race_bet_plan(group, thresholds, st, exotic_race=ex_group))
+        before = str(group["date"].iloc[0]) if "date" in group.columns else ""
+        plans.append(
+            build_race_bet_plan(
+                group,
+                thresholds,
+                st,
+                exotic_race=ex_group,
+                master=master,
+                before_date=before,
+            )
+        )
     plans.sort(key=lambda p: p.race_no)
     return plans
 
