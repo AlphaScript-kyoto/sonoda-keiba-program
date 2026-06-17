@@ -13,10 +13,26 @@ from src.predictor.race_schedule import is_race_started
 from src.predictor.score import load_master, score_entries
 from src.predictor.scoring_config import load_split_scoring_configs
 from src.scraper.client import NetkeibaBlockedError
+from src.scraper.race_id import parse_race_id
 from src.scraper.race_list import list_race_ids_for_shutuba
 from src.scraper.shutuba import fetch_shutuba_html, parse_shutuba
 
 ProgressCallback = Callable[[int, int, str], None]
+
+
+def filter_race_ids_by_no(
+    race_ids: List[str],
+    only_race_nos: Optional[Set[int]],
+) -> List[str]:
+    """指定 R 番のみに race_id 一覧を絞る。only_race_nos が空ならそのまま返す。"""
+    if not only_race_nos:
+        return race_ids
+    out: List[str] = []
+    for rid in race_ids:
+        parsed = parse_race_id(rid)
+        if parsed and parsed["race_no"] in only_race_nos:
+            out.append(rid)
+    return out
 
 
 @dataclass
@@ -49,9 +65,11 @@ def fetch_entries_for_date(
     date_yyyymmdd: str,
     *,
     skip_race_ids: Optional[Set[str]] = None,
+    race_ids: Optional[List[str]] = None,
     on_progress: Optional[ProgressCallback] = None,
 ) -> pd.DataFrame:
-    race_ids = list_race_ids_for_shutuba(date_yyyymmdd)
+    if race_ids is None:
+        race_ids = list_race_ids_for_shutuba(date_yyyymmdd)
     if not race_ids:
         return pd.DataFrame()
     skip = skip_race_ids or set()
@@ -130,6 +148,7 @@ def run_predict_day(
     cache: Optional[PredictDayResult] = None,
     now: Optional[datetime] = None,
     force_refresh: bool = False,
+    only_race_nos: Optional[Set[int]] = None,
 ) -> PredictDayResult:
     master = master if master is not None else load_master()
     win_cfg, ex_cfg = load_split_scoring_configs()
@@ -146,6 +165,10 @@ def run_predict_day(
 
     if offline:
         entries_df = master[master["date"].astype(str) == date_yyyymmdd].copy()
+        if only_race_nos:
+            entries_df = entries_df[
+                entries_df["race_no"].astype(int).isin(only_race_nos)
+            ].copy()
         if on_progress and not entries_df.empty:
             on_progress(entries_df["race_id"].nunique(), entries_df["race_id"].nunique(), "offline")
         if entries_df.empty:
@@ -193,18 +216,31 @@ def run_predict_day(
             message="予想対象がありません（園田開催なし、または出馬表未取得）。",
         )
 
+    race_ids = filter_race_ids_by_no(race_ids, only_race_nos)
+    if only_race_nos and not race_ids:
+        return PredictDayResult(
+            date=date_yyyymmdd,
+            win_df=pd.DataFrame(),
+            exotic_df=None,
+            plans=[],
+            race_count=0,
+            message="指定レースは開催カードにありません。",
+        )
+
     if cache and cache.date == date_yyyymmdd and not force_refresh and cache.plans:
         skip_race_ids = _skip_race_ids_from_cache(date_yyyymmdd, cache, current)
+        skip_race_ids &= set(race_ids)
         cached_win, cached_ex = _cached_frames(cache, skip_race_ids)
         cached_plans = [p for p in cache.plans if p.race_id in skip_race_ids]
         cached_count = len(skip_race_ids)
 
+    fetch_ids = [rid for rid in race_ids if rid not in skip_race_ids]
     fresh_entries = fetch_entries_for_date(
         date_yyyymmdd,
-        skip_race_ids=skip_race_ids,
+        race_ids=fetch_ids,
         on_progress=on_progress,
     )
-    fetched_count = len(race_ids) - cached_count
+    fetched_count = len(fetch_ids)
 
     fresh_win = (
         score_entries(fresh_entries, master, config=win_cfg)
@@ -291,6 +327,7 @@ def run_predict_day_safe(
     cache: Optional[PredictDayResult] = None,
     now: Optional[datetime] = None,
     force_refresh: bool = False,
+    only_race_nos: Optional[Set[int]] = None,
 ) -> PredictDayResult:
     try:
         return run_predict_day(
@@ -301,6 +338,7 @@ def run_predict_day_safe(
             cache=cache,
             now=now,
             force_refresh=force_refresh,
+            only_race_nos=only_race_nos,
         )
     except NetkeibaBlockedError as exc:
         return PredictDayResult(

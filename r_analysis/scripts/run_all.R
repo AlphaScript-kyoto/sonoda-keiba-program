@@ -16,3 +16,14 @@ if (file.exists(PAYBACK_CACHE_JSON)) {
 } else {
   message("Skip bet-like ROI: payback_cache.json not found")
 }
+source(file.path(scripts_dir, "07_expected_value.R"), local = FALSE)
+if (file.exists(PAYBACK_CACHE_JSON)) {
+  source(file.path(scripts_dir, "08_jockey_track_bias.R"), local = FALSE)
+} else {
+  message("Skip jockey x track: payback_cache.json not found")
+}
+if (file.exists(BACKTEST_ROWS_CSV)) {
+  source(file.path(scripts_dir, "09_skipped_races.R"), local = FALSE)
+} else {
+  message("Skip skipped-race EV: backtest_rows.csv not found")
+}

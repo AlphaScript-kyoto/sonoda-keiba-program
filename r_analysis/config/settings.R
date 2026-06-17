@@ -27,15 +27,27 @@ OUTPUT_DIR <- file.path(PROJECT_ROOT, "r_analysis", "output")
 BET_UNIT_YEN <- 100L
 TABLES_DIR <- file.path(OUTPUT_DIR, "tables")
 MODELS_DIR <- file.path(OUTPUT_DIR, "models")
+PLOTS_DIR <- file.path(OUTPUT_DIR, "plots")
 ANALYSIS_DATE_FROM <- "20240101"
 ANALYSIS_DATE_TO <- NULL
 MIN_FEATURE_NONNA_RATE <- 0.15
 POPULARITY_BINS <- c(1, 2, 3, 4, 6, 9, Inf)
 ODDS_BREAKS <- c(0, 2, 3, 5, 10, 20, 50, Inf)
+EV_DECILE_N <- 10L
+JOCKEY_TRACK_MIN_BETS <- 30L
+JOCKEY_TRACK_ROI_LIFT_MIN <- 1.15
+SKIPPED_EV_THRESHOLD <- 1.0
+EV_PROFITABLE_MIN_BETS <- 100L
+EV_PROFITABLE_MIN_ROI_PCT <- 100
+PLACE_OPPORTUNITY_MIN_BETS <- 30L
+PLACE_OPPORTUNITY_MIN_ROI_PCT <- 100
+REPORTS_DIR <- file.path(OUTPUT_DIR, "reports")
 
 ensure_output_dirs <- function() {
   dir.create(TABLES_DIR, recursive = TRUE, showWarnings = FALSE)
   dir.create(MODELS_DIR, recursive = TRUE, showWarnings = FALSE)
+  dir.create(PLOTS_DIR, recursive = TRUE, showWarnings = FALSE)
+  dir.create(REPORTS_DIR, recursive = TRUE, showWarnings = FALSE)
 }
 BACKTEST_ROWS_CSV <- file.path(PROJECT_ROOT, "r_analysis", "input", "backtest_rows.csv")
 DECILE_EXTENDED_FEATURES <- c(

@@ -40,3 +40,15 @@ def test_merge_scored_frames_does_not_bool_dataframe():
         [df for df in (cached_ex, fresh_ex) if df is not None]
     )
     assert len(merged) == 2
+
+
+def test_filter_race_ids_by_no():
+    from src.predictor.predict_day import filter_race_ids_by_no
+    from src.scraper.race_id import build_race_id
+
+    date = "20260605"
+    ids = [build_race_id(date, n) for n in (1, 2, 3, 4)]
+    filtered = filter_race_ids_by_no(ids, {2, 4})
+    assert filtered == [build_race_id(date, 2), build_race_id(date, 4)]
+    assert filter_race_ids_by_no(ids, None) == ids
+    assert filter_race_ids_by_no(ids, set()) == ids

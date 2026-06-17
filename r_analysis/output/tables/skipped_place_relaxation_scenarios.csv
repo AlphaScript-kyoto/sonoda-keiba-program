@@ -1,0 +1,5 @@
+scenario,n_races,roi_pct,profit_yen
+current_actual_place,0,NA,0
+hypothetical_place_all_upset_skipped,64,88.4375,-740
+hypothetical_place_high_ev_skipped,63,88.25396825396825,-740
+hypothetical_win_all_upset_skipped,64,91.09375,-570

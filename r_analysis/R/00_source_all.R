@@ -15,5 +15,8 @@ source_project(
   "07_payback_roi.R",
   "08_race_segments.R",
   "09_decile_extended.R",
-  "10_bet_like_roi.R"
+  "10_bet_like_roi.R",
+  "11_expected_value.R",
+  "12_jockey_track_bias.R",
+  "13_skipped_races.R"
 )

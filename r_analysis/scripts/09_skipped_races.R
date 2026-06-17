@@ -1,0 +1,7 @@
+source("r_analysis/config/settings.R", encoding = "UTF-8")
+source(file.path(PROJECT_ROOT, "r_analysis", "scripts", "bootstrap.R"), encoding = "UTF-8")
+bootstrap_r_analysis()
+ensure_output_dirs()
+message("Skipped-race EV review...")
+save_skipped_races_tables()
+message("Done. See r_analysis/output/tables/skipped_*.csv and output/reports/skipped_place_guidance.md")

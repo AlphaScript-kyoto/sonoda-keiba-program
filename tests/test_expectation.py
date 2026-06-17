@@ -235,8 +235,9 @@ def test_format_note_includes_bets_label():
     text = format_note_race_rich(p, ex, ex)
     assert "期待値" in text
     assert "◎ 1. サクラ" in text
-    assert "▼ このレースの見方" in text
     assert "▼ 印と根拠" in text
+    assert "▼ このレースの見方" not in text
+    assert "買い目の目安" not in text
 
 
 def test_format_race_copy_routes_by_tier():

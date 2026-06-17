@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.predictor.bets import RaceBetPlan
-from src.predictor.marks_display import build_marks_display_frame, sort_marks
+from src.predictor.marks_display import build_marks_display_frame, normalize_umaban, sort_marks
 
 
 def test_sort_marks_fixed_order():
@@ -47,3 +47,9 @@ def test_build_marks_display_frame_order():
     assert df.iloc[0]["odds"] == "2.0"
     assert df.iloc[0]["win_prob"] is not None
     assert float(df.iloc[0]["win_prob"]) > 0
+
+
+def test_normalize_umaban_float_like():
+    assert normalize_umaban("5.0") == "5"
+    assert normalize_umaban(5.0) == "5"
+    assert normalize_umaban("05") == "5"

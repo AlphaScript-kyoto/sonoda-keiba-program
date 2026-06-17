@@ -53,3 +53,39 @@ def test_due_and_next_wake(tmp_path, monkeypatch):
     assert wake == datetime(2026, 6, 12, 11, 40)
 
     assert not all_captures_done("20260612", sched, offsets=(30, 20, 10), now=now)
+
+
+def test_due_line_notify_jobs_t10(tmp_path, monkeypatch):
+    import src.predictor.race_day_notify as notify_mod
+    import src.scraper.race_snapshots as mod
+
+    monkeypatch.setattr(mod, "SNAPSHOTS_ROOT", tmp_path)
+    monkeypatch.setattr(notify_mod, "snapshots_dir", mod.snapshots_dir)
+
+    from datetime import datetime
+
+    from src.predictor.race_day_notify import (
+        due_line_notify_jobs,
+        load_notified_race_ids,
+        mark_race_notified,
+    )
+
+    sched = _schedule()
+    now = datetime(2026, 6, 12, 11, 51)
+    due = due_line_notify_jobs("20260612", sched, notify_offset=10, now=now)
+    assert len(due) == 1
+    assert due[0].race_id == "202650061201"
+
+    mark_race_notified("20260612", "202650061201")
+    due2 = due_line_notify_jobs("20260612", sched, notify_offset=10, now=now)
+    assert len(due2) == 0
+    assert "202650061201" in load_notified_race_ids("20260612")
+
+
+def test_chunk_text_for_line():
+    from tools.line_bot import chunk_text_for_line
+
+    body = "A\n" + ("x" * 5000)
+    parts = chunk_text_for_line(body, max_len=100)
+    assert len(parts) >= 2
+    assert all(len(p) <= 100 for p in parts)

@@ -16,11 +16,19 @@ if str(ROOT) not in sys.path:
 from src.predictor.bets import RaceBetPlan
 from src.predictor.display_labels import format_race_table_for_display
 from src.predictor.expectation import TIER_ORDER, sort_plans_by_race_no
-from src.predictor.horse_form import build_form_matrix_for_plan, form_matrix_html, resolve_horse_ids
+from src.predictor.horse_form import (
+    build_form_matrix_for_plan,
+    form_matrix_html,
+    normalize_race_date,
+    resolve_horse_ids,
+)
 from src.predictor.marks_display import build_marks_display_frame, filter_race_df
 from src.predictor.post_format import copy_channel_label, day_post_summary, format_race_copy
 from src.predictor.predict_day import PredictDayResult, run_predict_day_safe
 from src.predictor.score import load_master, race_display_model_probs
+
+SONODA_MAX_RACE_NO = 12
+NOTE_TIERS = frozenset({"SS", "S"})
 
 SHOW_COLS = [
     "mark", "umaban", "horse_name", "win_prob", "horse_win_rate",
@@ -71,12 +79,17 @@ def _render_horse_form(plan, win_df, exotic_df=None, *, master=None):
     if master is None or master.empty:
         st.caption("馬柱: master 未読込のため省略")
         return
-    before = _race_before_date(win_df, plan, exotic_df)
+    before = normalize_race_date(_race_before_date(win_df, plan, exotic_df))
     if not before:
         return
     hid_map = resolve_horse_ids(plan, win_df, exotic_df)
     form_df = build_form_matrix_for_plan(
-        plan, master, before, horse_by_umaban=hid_map,
+        plan,
+        master,
+        before,
+        horse_by_umaban=hid_map,
+        win_df=win_df,
+        exotic_df=exotic_df,
     )
     if form_df.empty:
         return
@@ -112,6 +125,38 @@ def _render_plan_header(plan, distance, *, exotic_df=None):
     )
     if plan.fav_odds <= 0:
         st.warning("オッズ未取得（再取得するか、オッズ確定後に試してください）")
+
+
+def _copy_text_widget_key(plan: RaceBetPlan) -> str:
+    """text_area の key。再取得ごとに epoch を変え、古い投稿文が残らないようにする。"""
+    epoch = st.session_state.get("copy_text_epoch", 0)
+    return f"race_copy_{plan.race_id}_{epoch}"
+
+
+def _selected_fetch_race_nos() -> list[int]:
+    if not st.session_state.get("limit_race_fetch"):
+        return []
+    selected: list[int] = []
+    for race_no in range(1, SONODA_MAX_RACE_NO + 1):
+        if st.session_state.get(f"fetch_race_{race_no}"):
+            selected.append(race_no)
+    return selected
+
+
+def _render_race_fetch_selector():
+    st.checkbox("指定レースのみ取得", key="limit_race_fetch")
+    if not st.session_state.get("limit_race_fetch"):
+        return
+    st.caption("取得するレースにチェック（1つ以上必須）")
+    per_row = 5
+    for row_start in range(1, SONODA_MAX_RACE_NO + 1, per_row):
+        cols = st.columns(per_row)
+        for col_idx, col in enumerate(cols):
+            race_no = row_start + col_idx
+            if race_no > SONODA_MAX_RACE_NO:
+                break
+            with col:
+                st.checkbox(f"{race_no}R", key=f"fetch_race_{race_no}")
 
 
 def _passes_filters(plan, *, exotic_only, hide_win_skip, tier_filter):
@@ -157,7 +202,7 @@ def _render_results(result, win_df, exotic_df=None):
             f"　期待値{plan.expectation_tier}"
         )
         expanded = (
-            not plan.is_started and plan.expectation_tier in ("SS", "S")
+            not plan.is_started and plan.expectation_tier in NOTE_TIERS
         )
         with st.expander(label, expanded=expanded):
             if plan.is_started:
@@ -166,14 +211,15 @@ def _render_results(result, win_df, exotic_df=None):
             table = _race_rows(win_df, plan, exotic_df, master=master)
             if not table.empty:
                 st.dataframe(table, width="stretch", hide_index=True)
-            _render_horse_form(plan, win_df, exotic_df, master=master)
+            if plan.expectation_tier in NOTE_TIERS:
+                _render_horse_form(plan, win_df, exotic_df, master=master)
             channel = copy_channel_label(plan.expectation_tier)
-            height = 480 if plan.expectation_tier in ("SS", "S") else 160
+            height = 480 if plan.expectation_tier in NOTE_TIERS else 160
             st.text_area(
                 f"コピー用（{channel}）",
                 format_race_copy(plan, win_df, exotic_df),
                 height=height,
-                key=f"race_copy_{plan.race_id}",
+                key=_copy_text_widget_key(plan),
             )
 
 
@@ -181,7 +227,7 @@ def main():
     st.set_page_config(page_title="園田予想", page_icon="🏇", layout="wide")
     st.title("園田競馬 当日予想")
     st.caption(
-        "期待値 SS/S＝note用の詳しい文 · A〜C＝X用の簡易印 · split scoring · "
+        "期待値 SS/S＝展開・印と根拠の詳細文 · A〜C＝印のみ · split scoring · "
         "発走済みレースは前回データを再利用（未発走のみ netkeiba 取得）"
     )
     col_date, col_off, col_force = st.columns([2, 1, 1])
@@ -191,6 +237,7 @@ def main():
         offline = st.checkbox("オフライン（master のみ）", value=False)
     with col_force:
         force_refresh = st.checkbox("発走済みも再取得", value=False)
+    _render_race_fetch_selector()
     st.checkbox("三連系 自信度「高」のみ", key="filter_exotic_high")
     st.checkbox("単勝見送りを除く", key="filter_hide_win_skip")
     st.multiselect(
@@ -202,6 +249,10 @@ def main():
             target = _normalize_date(date_input)
         except ValueError as exc:
             st.error(str(exc))
+            return
+        only_race_nos = _selected_fetch_race_nos()
+        if st.session_state.get("limit_race_fetch") and not only_race_nos:
+            st.error("指定レースのみ取得のときは、1つ以上レースにチェックしてください。")
             return
         progress = st.progress(0.0, text="準備中…")
         status = st.empty()
@@ -225,6 +276,7 @@ def main():
                 on_progress=on_progress,
                 cache=cache,
                 force_refresh=force_refresh or offline,
+                only_race_nos=set(only_race_nos) if only_race_nos else None,
             )
         progress.empty()
         status.empty()
@@ -233,7 +285,11 @@ def main():
             return
         st.session_state["last_result"] = result
         st.session_state["last_win_df"] = result.win_df
+        st.session_state["copy_text_epoch"] = st.session_state.get("copy_text_epoch", 0) + 1
         summary = f"{target} · {result.race_count}レース · {day_post_summary(result.plans)}"
+        if only_race_nos:
+            race_label = ",".join(f"{n}R" for n in sorted(only_race_nos))
+            summary = f"{summary} · 取得: {race_label}"
         if result.message:
             summary = f"{summary} · {result.message}"
         st.success(summary)

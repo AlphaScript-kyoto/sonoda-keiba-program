@@ -103,6 +103,10 @@ def records_to_export_df(records, *, strategy=DEFAULT_STRATEGY) -> pd.DataFrame:
                 "win_invest_yen": win_invest,
                 "win_return_yen": win_return,
                 "place_invest_yen": place_invest,
+                "place_payout_yen": rec.place_payout,
+                "hypothetical_place_return_yen": (
+                    rec.place_payout if rec.place_hit else 0
+                ),
                 "place_return_yen": place_return,
                 "sanrenpuku_points": sp_pts,
                 "sanrenpuku_hit": sp_hit,

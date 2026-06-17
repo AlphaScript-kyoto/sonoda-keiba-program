@@ -14,10 +14,27 @@ MARK_RANK = {m: i for i, m in enumerate(MARKS)}
 
 
 def normalize_umaban(value) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    if isinstance(value, int):
+        return str(value)
     s = str(value).strip()
+    if not s or s.lower() in ("nan", "none", "<na>"):
+        return ""
     if s.isdigit():
         return str(int(s))
+    try:
+        f = float(s)
+        if f.is_integer():
+            return str(int(f))
+    except ValueError:
+        pass
     return s
+
+
+def is_valid_horse_id(horse_id) -> bool:
+    s = str(horse_id).strip() if horse_id is not None else ""
+    return bool(s) and s.lower() not in ("nan", "none", "<na>")
 
 
 def filter_race_df(df: pd.DataFrame, race_no: int | str) -> pd.DataFrame:
@@ -120,6 +137,8 @@ def build_marks_display_frame(
         if src is None:
             src = win_by_u.get(u)
         hid = str(src.get("horse_id", "")).strip() if src is not None else ""
+        if not is_valid_horse_id(hid):
+            hid = ""
         win_r: Optional[float] = None
         place_r: Optional[float] = None
         if mst is not None and before_date and hid:

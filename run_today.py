@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from datetime import datetime
@@ -13,15 +12,8 @@ PYTHON_EXE = BASE_DIR / ".venv" / "Scripts" / "python.exe"
 FETCH_SCRIPT = BASE_DIR / "scripts" / "fetch_daily.py"
 COMPARE_SCRIPT = BASE_DIR / "scripts" / "compare_odds_timing.py"
 
-sys.path.append(str(BASE_DIR / "tools"))
-from line_bot import send_line_message  # noqa: E402
-
-
-def _notify(message: str) -> None:
-    try:
-        send_line_message(message)
-    except Exception as exc:
-        print(f"LINE skip: {exc}")
+sys.path.insert(0, str(BASE_DIR))
+from src.predictor.automation_log import log_run_today, send_alert  # noqa: E402
 
 
 def _has_snapshots(date_yyyymmdd: str) -> bool:
@@ -82,6 +74,7 @@ def run_compare(date_yyyymmdd: str) -> str:
 
 def main() -> None:
     today = datetime.now().strftime("%Y%m%d")
+    log_run_today(today, "started")
     print(f"本日の日付 {today} でデータを取得します...")
 
     try:
@@ -96,17 +89,37 @@ def main() -> None:
         )
         if proc.stdout:
             print(proc.stdout)
-        _notify(f"園田競馬のデータ取得が完了しました ({today})")
+        log_run_today(today, "fetch_daily completed")
+        send_alert(
+            f"\u30c7\u30fc\u30bf\u53d6\u5f97\u5b8c\u4e86 ({today})",
+            date_yyyymmdd=today,
+            alert_key=f"run_today_ok_{today}",
+            cooldown_minutes=60 * 12,
+            log_channel="run_today",
+        )
 
         report = run_compare(today)
         if report:
             summary = _extract_summary(report)
-            _notify(f"オッズタイミング比較 ({today})\n{summary}")
+            send_alert(
+                f"\u30aa\u30c3\u30ba\u30bf\u30a4\u30df\u30f3\u30b0\u6bd4\u8f03 ({today})\n{summary}",
+                date_yyyymmdd=today,
+                alert_key=f"run_today_compare_{today}",
+                cooldown_minutes=60 * 12,
+                log_channel="run_today",
+            )
             print(f"\nReport: data/processed/snapshots/{today}/compare_report.txt")
 
     except subprocess.CalledProcessError as exc:
         error_message = (exc.stderr or exc.stdout or "").strip() or "詳細なエラーメッセージなし"
-        _notify(f"【失敗】園田競馬データ取得エラー ({today})\n理由: {error_message}")
+        log_run_today(today, f"FAILED: {error_message}")
+        send_alert(
+            f"\u30c7\u30fc\u30bf\u53d6\u5f97\u5931\u6557 ({today})\n\u7406\u7531: {error_message}",
+            date_yyyymmdd=today,
+            alert_key=f"run_today_fail_{today}",
+            cooldown_minutes=60,
+            log_channel="run_today",
+        )
         print(f"エラーが発生しました: {error_message}")
         sys.exit(1)
 

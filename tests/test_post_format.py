@@ -68,37 +68,42 @@ def _ex_df() -> pd.DataFrame:
 
 def test_format_note_race_rich_plain_language():
     text = format_note_race_rich(_plan("S"), _ex_df(), _ex_df())
-    assert "▼ このレースの見方" in text
+    assert "▼ レースの展開" in text
     assert "▼ 印と根拠" in text
+    assert "▼ このレースの見方" not in text
+    assert "買い目の目安" not in text
     assert "三連スコア" not in text
     assert "自信度 高" not in text
     assert "AI1位" not in text
-    assert "おすすめ度は高め" in text
+    assert "noteで" not in text
 
 
 def test_format_note_ss_tier_line():
     text = format_note_race_rich(_plan("SS"), _ex_df(), _ex_df())
-    assert "いちばんおすすめ" in text
+    assert "期待値SS" in text
+    assert "いちばんおすすめ" not in text
 
 
 def test_format_race_copy_tier_routing():
     ex = _ex_df()
     note_text = format_race_copy(_plan("S"), ex, ex)
     x_text = format_race_copy(_plan("C"), ex, ex)
-    assert "▼ このレースの見方" in note_text
-    assert "▼ このレースの見方" not in x_text
+    assert "▼ レースの展開" in note_text
+    assert "▼ レースの展開" not in x_text
     assert "◎：1　マスクト" in x_text
-    assert copy_channel_label("S") == "note用（根拠付き）"
-    assert copy_channel_label("B") == "X用（簡易）"
+    assert copy_channel_label("S") == "詳細（展開・根拠）"
+    assert copy_channel_label("B") == "簡易（印のみ）"
 
 
 def test_format_x_race():
     text = format_x_race(_plan("A"))
     assert "期待値A" in text
     assert "◎：1　マスクト" in text
-    assert "軽めの参考" in text
+    assert "X用" not in text
+    assert "※" not in text
 
 
 def test_format_x_race_tier_c_intro():
     text = format_x_race(_plan("C"))
-    assert "控えめ" in text
+    assert "控えめ" not in text
+    assert "◎：1　マスクト" in text

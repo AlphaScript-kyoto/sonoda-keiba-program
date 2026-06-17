@@ -8,7 +8,6 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.predictor.bets import RaceBetPlan
 from src.predictor.horse_form import (
     FORM_RUN_COLUMNS,
     build_form_matrix_for_plan,
@@ -16,7 +15,9 @@ from src.predictor.horse_form import (
     format_run_cell,
     form_matrix_html,
     recent_run_series,
+    resolve_horse_ids,
 )
+from src.predictor.bets import RaceBetPlan
 from src.predictor.marks_display import _career_rates_raw
 
 
@@ -152,3 +153,58 @@ def test_build_form_tables_wrapper():
     _, table = blocks[0]
     assert "馬名" in table.columns
     assert "前走" in table.columns
+
+
+def test_resolve_horse_ids_skips_empty_exotic_id():
+    plan = RaceBetPlan(
+        race_id="r1",
+        race_no=4,
+        race_name="テスト",
+        confidence="高",
+        win_prob_top=0.9,
+        prob_gap=0.7,
+        marks=[("◎", "5", "A馬")],
+    )
+    ex = pd.DataFrame(
+        [{"race_no": 4, "umaban": "5", "horse_id": "", "horse_name": "A馬"}]
+    )
+    win = pd.DataFrame(
+        [{"race_no": 4, "umaban": "5", "horse_id": "hid5", "horse_name": "A馬"}]
+    )
+    assert resolve_horse_ids(plan, win, ex) == {"5": "hid5"}
+
+
+def test_build_form_matrix_name_fallback():
+    master = pd.DataFrame(
+        [
+            {
+                "horse_id": "alt_id",
+                "horse_name": "A馬",
+                "date": "20260101",
+                "race_no": 1,
+                "race_class": "C3",
+                "finish": "2",
+                "distance": "1400",
+                "track": "良",
+            },
+        ]
+    )
+    plan = RaceBetPlan(
+        race_id="r1",
+        race_no=1,
+        race_name="テスト",
+        confidence="高",
+        win_prob_top=0.9,
+        prob_gap=0.7,
+        marks=[("◎", "1", "A馬")],
+    )
+    df = build_form_matrix_for_plan(
+        plan,
+        master,
+        "20260201",
+        horse_by_umaban={},
+        win_df=pd.DataFrame(
+            [{"race_no": 1, "umaban": "1", "horse_id": "", "horse_name": "A馬"}]
+        ),
+    )
+    assert "C3" in df.iloc[0]["前走"]

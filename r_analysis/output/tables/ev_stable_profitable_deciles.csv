@@ -1,0 +1,1 @@
+decile,n,n_races,decile_min,decile_max,mean_pred_prob,hit_rate,mean_odds,mean_model_ev,empirical_ev,mean_realized_return,model_ev_gt_1,empirical_ev_gt_1,n_bets,total_stake,total_return,roi_pct,profit_yen,calibration_gap,is_stable_profitable,decile_type
