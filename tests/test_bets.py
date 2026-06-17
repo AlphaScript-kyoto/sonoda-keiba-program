@@ -17,11 +17,14 @@ from src.predictor.bets import (
     collect_race_signals,
     detect_exotic_profile,
     detect_win_profile,
+    assign_marks,
     build_sanrenpuku_box,
+    build_sanrenpuku_formation_firm,
     build_sanrenpuku_nagashi,
     build_sanrentan_formation,
     build_wide_formation,
     check_sanrenpuku_box_hit,
+    check_sanrenpuku_formation_firm_hit,
     check_sanrenpuku_hit,
     check_sanrentan_hit,
     check_wide_hits,
@@ -80,6 +83,18 @@ def test_sanrenpuku_nagashi_points():
     assert nagashi.axis_umaban == "1"
     assert nagashi.partner_umaban == ["2", "3", "4", "5"]
     assert nagashi.points == 6
+
+
+def test_sanrenpuku_formation_firm_points():
+    race = _sample_race([0.35, 0.20, 0.15, 0.10, 0.08])
+    top5 = assign_marks(race.sort_values("rank_pred").head(5))
+    formation = build_sanrenpuku_formation_firm(top5)
+    assert formation is not None
+    assert formation.points == 5
+    assert formation.key_partner_umaban == ["2", "3"]
+    assert check_sanrenpuku_formation_firm_hit(formation, ["1", "2", "4"])
+    assert check_sanrenpuku_formation_firm_hit(formation, ["1", "3", "5"])
+    assert not check_sanrenpuku_formation_firm_hit(formation, ["1", "4", "5"])
 
 
 def test_sanrentan_formation_tickets():

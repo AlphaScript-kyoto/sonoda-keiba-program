@@ -17,11 +17,13 @@ from src.predictor.bets import (
     assign_marks,
     build_race_bet_plan,
     build_sanrenpuku_box,
+    build_sanrenpuku_formation_firm,
     build_sanrenpuku_nagashi,
     build_sanrentan_formation,
     build_wide_formation,
     build_wide_formation_upset,
     check_sanrenpuku_box_hit,
+    check_sanrenpuku_formation_firm_hit,
     check_sanrenpuku_hit,
     check_sanrentan_hit,
     check_wide_hits,
@@ -114,10 +116,12 @@ class _RaceRecord:
     win_payout: int
     place_payout: int
     sanrenpuku_points: int
+    sanrenpuku_formation_points: int
     sanrenpuku_box_points: int
     sanrenpuku_firm_box_points: int
     sanrentan_points: int
     sanrenpuku_hit: bool
+    sanrenpuku_formation_hit: bool
     sanrenpuku_box_hit: bool
     sanrenpuku_firm_box_hit: bool
     sanrentan_hit: bool
@@ -259,6 +263,7 @@ def _collect_race_records(
             pred_odds = _parse_odds_value(odds)
 
             nagashi = build_sanrenpuku_nagashi(top5)
+            formation_firm = build_sanrenpuku_formation_firm(top5)
             firm_box = (
                 build_sanrenpuku_box(
                     top5,
@@ -281,6 +286,11 @@ def _collect_race_records(
             wide_upset = build_wide_formation_upset(top5)
 
             sp_hit = check_sanrenpuku_hit(nagashi, finish) if nagashi else False
+            sp_form_hit = (
+                check_sanrenpuku_formation_firm_hit(formation_firm, finish)
+                if formation_firm
+                else False
+            )
             firm_box_hit = (
                 check_sanrenpuku_box_hit(firm_box, finish) if firm_box else False
             )
@@ -316,10 +326,14 @@ def _collect_race_records(
                     win_payout=_win_payout_yen(pred_u, pb, str(odds)),
                     place_payout=_place_payout_yen(pred_u, pb),
                     sanrenpuku_points=nagashi.points if nagashi else 0,
+                    sanrenpuku_formation_points=(
+                        formation_firm.points if formation_firm else 0
+                    ),
                     sanrenpuku_box_points=box.points if box else 0,
                     sanrenpuku_firm_box_points=firm_box.points if firm_box else 0,
                     sanrentan_points=formation.points if formation else 0,
                     sanrenpuku_hit=sp_hit,
+                    sanrenpuku_formation_hit=sp_form_hit,
                     sanrenpuku_box_hit=box_hit,
                     sanrenpuku_firm_box_hit=firm_box_hit,
                     sanrentan_hit=st_hit,

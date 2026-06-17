@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from itertools import product
+from itertools import combinations, product
 from math import comb
 from typing import List, Optional, Tuple
 
@@ -486,6 +486,52 @@ def _pick_exotic_longshots(
     return picked.head(count)
 
 
+@dataclass
+class SanrenpukuFormationFirm:
+    """三連複: ◎軸 + 相手2頭（○▲のどちらか必須）。5点。"""
+
+    axis_umaban: str
+    axis_name: str
+    partner_umaban: List[str]
+    key_partner_umaban: List[str]
+    points: int
+    label: str = field(default="", init=False)
+
+    def __post_init__(self) -> None:
+        partner_txt = ",".join(self.partner_umaban)
+        key_txt = ",".join(self.key_partner_umaban)
+        self.label = (
+            f"三連複フォーメーション: 軸{self.axis_umaban} {self.axis_name} "
+            f"× 相手 {partner_txt} (○▲必須 {key_txt}) ({self.points}点)"
+        )
+
+
+def build_sanrenpuku_formation_firm(top5: pd.DataFrame) -> Optional[SanrenpukuFormationFirm]:
+    """◎軸。相手は○▲△☆から2頭、ただし○▲のどちらかを必ず含む（5点）。"""
+    if len(top5) < 5:
+        return None
+
+    axis_u, axis_n = _horse_label(top5.iloc[0])
+    partners = top5.iloc[1:5]
+    partner_u = [str(u) for u in partners["umaban"]]
+    key_u = partner_u[:2]
+    points = sum(
+        1
+        for a, b in combinations(partner_u, 2)
+        if a in key_u or b in key_u
+    )
+    if points == 0:
+        return None
+
+    return SanrenpukuFormationFirm(
+        axis_umaban=axis_u,
+        axis_name=axis_n,
+        partner_umaban=partner_u,
+        key_partner_umaban=key_u,
+        points=points,
+    )
+
+
 def build_sanrenpuku_nagashi(top5: pd.DataFrame) -> Optional[SanrenpukuNagashi]:
     """1位を軸、2～5位を相手とする三連複1軸流し。"""
     if len(top5) < 4:
@@ -739,6 +785,21 @@ def check_sanrenpuku_box_hit(box: SanrenpukuBox, finish_order: List[str]) -> boo
     if len(finish_order) < 3:
         return False
     return set(finish_order[:3]).issubset(set(box.umaban))
+
+
+def check_sanrenpuku_formation_firm_hit(
+    formation: SanrenpukuFormationFirm, finish_order: List[str]
+) -> bool:
+    """三連複5点フォーメーションが的中したか。"""
+    if len(finish_order) < 3:
+        return False
+    top3 = set(finish_order[:3])
+    if formation.axis_umaban not in top3:
+        return False
+    others = top3 - {formation.axis_umaban}
+    if len(others) != 2:
+        return False
+    return bool(others & set(formation.key_partner_umaban))
 
 
 def check_sanrenpuku_hit(
