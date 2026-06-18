@@ -110,6 +110,19 @@ def main() -> None:
             )
             print(f"\nReport: data/processed/snapshots/{today}/compare_report.txt")
 
+        from src.predictor.t10_daily_roi import (  # noqa: E402
+            build_t10_daily_roi_report,
+            format_t10_daily_roi_message,
+        )
+        from tools.line_bot import send_line_message  # noqa: E402
+
+        roi_report = build_t10_daily_roi_report(today, fetch_payback=True)
+        roi_msg = format_t10_daily_roi_message(roi_report)
+        log_run_today(today, f"T-10 ROI report: {len(roi_report.races)} race(s)")
+        print("\n=== T-10 ROI (S+) ===")
+        print(roi_msg)
+        send_line_message(roi_msg)
+
     except subprocess.CalledProcessError as exc:
         error_message = (exc.stderr or exc.stdout or "").strip() or "詳細なエラーメッセージなし"
         log_run_today(today, f"FAILED: {error_message}")

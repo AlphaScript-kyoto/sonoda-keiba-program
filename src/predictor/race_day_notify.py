@@ -125,13 +125,22 @@ def send_line_notifications(
     date_yyyymmdd: str,
     jobs: Sequence[CaptureJob],
 ) -> List[str]:
-    from tools.line_bot import send_line_messages
+    from tools.line_bot import send_line_predict_messages, team_user_ids
+    import os
+
+    admin_id = os.getenv("LINE_USER_ID", "").strip()
+    if not team_user_ids() and not admin_id:
+        log_watch(
+            date_yyyymmdd,
+            "WARN LINE_TEAM_USER_IDS and LINE_USER_ID empty; skip predict push",
+        )
+        return []
 
     sent: List[str] = []
     for job in jobs:
         try:
             text = build_race_line_message(date_yyyymmdd, job.race_no)
-            send_line_messages(text)
+            send_line_predict_messages(text)
             mark_race_notified(date_yyyymmdd, job.race_id)
             sent.append(job.race_id)
             log_watch(
