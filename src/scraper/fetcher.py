@@ -95,6 +95,45 @@ def fetch_day(
     return result
 
 
+def fetch_races_to_master(race_ids: List[str]) -> List[str]:
+    """指定レースの結果を取得し、日次CSVと horses_master.csv を更新する。"""
+    import pandas as pd
+
+    from config.settings import HORSES_MASTER_PATH
+
+    fetched: List[str] = []
+    by_date: Dict[str, List[Dict[str, Any]]] = {}
+
+    for race_id in race_ids:
+        rid = str(race_id)
+        try:
+            html = fetch_race_result_html(rid)
+        except NetkeibaBlockedError:
+            raise
+        except requests.RequestException:
+            continue
+        rows = parse_race_result(html, rid)
+        if not rows:
+            continue
+        fetched.append(rid)
+        day = str(rows[0].get("date", "") or rid[6:14])
+        by_date.setdefault(day, []).extend(rows)
+
+    if not fetched:
+        return []
+
+    for day, rows in by_date.items():
+        append_horses_csv(rows, day)
+
+    if HORSES_MASTER_PATH.exists():
+        master = pd.read_csv(HORSES_MASTER_PATH, dtype=str)
+        master = master[~master["race_id"].astype(str).isin(fetched)]
+        master = pd.concat([master, pd.DataFrame(sum(by_date.values(), []))], ignore_index=True)
+        master.to_csv(HORSES_MASTER_PATH, index=False, encoding="utf-8-sig")
+
+    return fetched
+
+
 def fetch_range(
     date_from: str,
     date_to: str,

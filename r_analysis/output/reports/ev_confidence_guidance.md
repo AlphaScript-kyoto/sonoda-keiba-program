@@ -1,15 +1,15 @@
 # EV decile analysis — confidence threshold guidance
 
-Generated: 2026-06-15 13:17
+Generated: 2026-06-19 16:37
 Analysis period: master from 20240101
 
 ## 1. Summary (logistic model, flat win 100yen/bet)
 
-- Total bets: 27923
-- Overall ROI: 65.9%
+- Total bets: 28042
+- Overall ROI: 65.8%
 - Weighted hit rate: 9.16%
-- Weighted model EV: 0.661
-- Weighted empirical EV: 0.773
+- Weighted model EV: 0.658
+- Weighted empirical EV: 0.772
 - Mean calibration gap (pred - hit): 0
 
 ## 2. Stable profitable deciles (ROI>=100%, profit>0, n>=100)
@@ -19,10 +19,10 @@ Analysis period: master from 20240101
 
 ## 3. High-probability deciles (top 3 deciles)
 
-- ROI range: 72.6% - 81.4%
+- ROI range: 73% - 81.2%
 - Model EV>1 deciles in top-3: 2/3
 - Empirical EV>1 deciles in top-3: 0/3
-- Avg calibration gap (top-3): 0.0024
+- Avg calibration gap (top-3): 0.0025
 
 ## 4. Mapping to production confidence (bets.py)
 
@@ -38,11 +38,11 @@ Statistical suggestions:
 
 ## 5. Production model (backtest_rows, win_high races)
 
-- win_prob deciles analysed: 10 (n_bets per decile ~40)
+- win_prob deciles analysed: 10 (n_bets per decile ~48)
 - Stable profitable win decile: **none** on hypothetical mark win bets.
-- Top-3 decile hypothetical win ROI: 83.7%
-- Top-3 decile hypothetical place ROI: 93.8%
-- Top-3 decile actual win ROI (current skip rules): 83%
+- Top-3 decile hypothetical win ROI: 78.8%
+- Top-3 decile hypothetical place ROI: 92.2%
+- Top-3 decile actual win ROI (current skip rules): 78.5%
 
 Production note: win_high already enforces win_prob>=85% and gap>=60%. Decile splits within win_high show where skip rules help or hurt - see skipped_place_guidance.md.
 

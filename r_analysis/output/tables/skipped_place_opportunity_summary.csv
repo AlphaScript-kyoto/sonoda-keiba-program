@@ -1,2 +1,2 @@
 n_races,mean_model_ev,win_hit_rate,place_hit_rate,mean_place_empirical_ev,hypothetical_win_roi_pct,hypothetical_place_roi_pct,place_profit_yen,place_roi_ge_100
-64,2.048293860409987,0.515625,0.765625,0.884375,91.09375,88.4375,-740,FALSE
+86,2.044922050440549,0.4418604651162791,0.7674418604651163,0.8883720930232558,78.13953488372093,88.83720930232558,-960,FALSE

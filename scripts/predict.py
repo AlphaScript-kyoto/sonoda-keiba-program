@@ -64,6 +64,8 @@ def _print_predictions(df, exotic_df=None) -> None:
             if plan.exotic_confidence == "高":
                 if plan.sanrenpuku:
                     print(f"  {plan.sanrenpuku.label}")
+                if plan.sanrenpuku_formation:
+                    print(f"  {plan.sanrenpuku_formation.label}")
                 if plan.sanrenpuku_box:
                     print(f"  {plan.sanrenpuku_box.label}")
                 if plan.sanrentan:

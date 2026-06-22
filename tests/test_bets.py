@@ -132,7 +132,7 @@ def test_win_confidence_with_old_thresholds():
     assert plan.confidence == "高"
 
 
-def test_upset_profile_uses_box():
+def test_upset_profile_uses_formation():
     race = _sample_race([0.82, 0.10, 0.04, 0.02, 0.01, 0.01])
     race["odds"] = [4.0, 5.0, 10.0, 15.0, 20.0, 30.0]
     race["head_count"] = 12
@@ -140,15 +140,16 @@ def test_upset_profile_uses_box():
     assert plan.win_profile == "荒"
     assert plan.exotic_profile == "荒"
     assert plan.sanrenpuku is None
-    assert plan.sanrenpuku_box is not None
-    assert plan.sanrenpuku_box.points >= 10
+    assert plan.sanrenpuku_box is None
+    assert plan.sanrenpuku_formation is not None
+    assert plan.sanrenpuku_formation.points == 5
     assert plan.sanrentan is None
     assert plan.wide is not None
     assert plan.wide.points == 3
 
 
 def test_split_win_firm_exotic_upset():
-    """混戦(score3)・1番人気2.8倍: 単勝は買う、三連系はBOX。"""
+    """混戦(score3)・1番人気2.8倍: 単勝は買う、三連系は5点フォーメーション。"""
     race = _sample_race([0.87, 0.23, 0.10, 0.08, 0.06, 0.05])
     race["odds"] = [2.8, 4.0, 6.0, 10.0, 15.0, 20.0]
     race["head_count"] = 12
@@ -157,7 +158,7 @@ def test_split_win_firm_exotic_upset():
     assert plan.exotic_profile == "荒"
     assert plan.confidence == "高"
     assert plan.sanrenpuku is None
-    assert plan.sanrenpuku_box is not None
+    assert plan.sanrenpuku_formation is not None
 
 
 def test_volatile_firm_uses_wide_upset():

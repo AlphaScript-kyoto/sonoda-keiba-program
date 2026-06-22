@@ -1,4 +1,4 @@
-"""Portfolio backtest: firm win+wide+5pt sanren / upset sanren BOX only."""
+"""Portfolio backtest: firm win+wide+5pt sanren / upset sanren 5pt formation."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ class PortfolioReport:
         default_factory=lambda: BetTypeResult("三連複5点(堅・自信度高)")
     )
     sanrenpuku_box: BetTypeResult = field(
-        default_factory=lambda: BetTypeResult("三連複BOX(荒・自信度高)")
+        default_factory=lambda: BetTypeResult("三連複5点(荒・自信度高)")
     )
     firm_exotic_races: int = 0
     upset_exotic_races: int = 0
@@ -72,7 +72,7 @@ def backtest_portfolio_period(
 ) -> PortfolioReport:
     """
     Firm (堅): win + wide + 5pt sanren when exotic confidence high.
-    Upset (荒): sanrenpuku BOX only when exotic confidence high.
+    Upset (荒): sanrenpuku 5pt formation when exotic confidence high.
     """
     st = strategy
     master_df = master if master is not None else load_master()
@@ -109,12 +109,14 @@ def backtest_portfolio_period(
         race_hit = False
 
         if rec.exotic_profile == "荒":
-            if exotic_high and rec.sanrenpuku_box_points:
+            if exotic_high and rec.sanrenpuku_formation_points:
                 report.upset_exotic_races += 1
                 report.sanrenpuku_box.races += 1
-                report.sanrenpuku_box.points += rec.sanrenpuku_box_points
-                report.sanrenpuku_box.investment += rec.sanrenpuku_box_points * BET_UNIT
-                if rec.sanrenpuku_box_hit:
+                report.sanrenpuku_box.points += rec.sanrenpuku_formation_points
+                report.sanrenpuku_box.investment += (
+                    rec.sanrenpuku_formation_points * BET_UNIT
+                )
+                if rec.sanrenpuku_formation_hit:
                     report.sanrenpuku_box.hits += 1
                     report.sanrenpuku_box.return_yen += rec.fuku3_yen
                     race_hit = True

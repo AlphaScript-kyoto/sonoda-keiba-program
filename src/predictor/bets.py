@@ -184,6 +184,7 @@ class RaceBetPlan:
     exotic_confidence: str = "通常"
     fav_odds: float = 0.0
     sanrenpuku: Optional[SanrenpukuNagashi] = None
+    sanrenpuku_formation: Optional[SanrenpukuFormationFirm] = None
     sanrenpuku_box: Optional[SanrenpukuBox] = None
     sanrentan: Optional[SanrentanFormation] = None
     wide: Optional[WideFormation] = None
@@ -532,6 +533,20 @@ def build_sanrenpuku_formation_firm(top5: pd.DataFrame) -> Optional[SanrenpukuFo
     )
 
 
+def format_sanrenpuku_formation_umaban_line(
+    formation: SanrenpukuFormationFirm,
+) -> str:
+    """JRA-VAN 3-column line: col1-col2-,col3 e.g. 5-1,4,-1,4,9,8."""
+    axis = formation.axis_umaban
+    partners = formation.partner_umaban
+    keys = formation.key_partner_umaban
+    col3 = ",".join(partners)
+    if len(keys) >= 2:
+        col2 = f"{keys[0]},{keys[1]}"
+        return f"{axis}-{col2},-{col3}"
+    return f"{axis}-,{col3}"
+
+
 def build_sanrenpuku_nagashi(top5: pd.DataFrame) -> Optional[SanrenpukuNagashi]:
     """1位を軸、2～5位を相手とする三連複1軸流し。"""
     if len(top5) < 4:
@@ -725,13 +740,7 @@ def build_race_bet_plan(
                     plan.sanrenpuku_box = box_247
                     use_247 = True
         if not use_247:
-            plan.sanrenpuku_box = build_sanrenpuku_box(
-                top5,
-                ex_race,
-                core_count=st.upset_box_core,
-                extra_longshots=st.upset_longshot_count,
-                max_longshot_odds=st.longshot_max_odds,
-            )
+            plan.sanrenpuku_formation = build_sanrenpuku_formation_firm(top5)
         plan.wide = build_wide_formation_upset(top5)
 
     return _finalize_plan(plan)

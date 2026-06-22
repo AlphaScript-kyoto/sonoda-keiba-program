@@ -123,6 +123,16 @@ def main() -> None:
         print(roi_msg)
         send_line_message(roi_msg)
 
+        from src.predictor.upset_high_bet_gate import (  # noqa: E402
+            load_state,
+            save_state,
+            settle_pending_for_date,
+        )
+
+        gate_state = settle_pending_for_date(today)
+        save_state(gate_state)
+        log_run_today(today, "upset-high bet gate settled")
+
     except subprocess.CalledProcessError as exc:
         error_message = (exc.stderr or exc.stdout or "").strip() or "詳細なエラーメッセージなし"
         log_run_today(today, f"FAILED: {error_message}")

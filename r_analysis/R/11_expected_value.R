@@ -460,18 +460,18 @@ save_expected_value_tables <- function(df) {
   scored <- attach_logistic_predictions(df, fit)
 
   prob_decile_tbl <- summarise_ev_by_decile(scored, n_bins = EV_DECILE_N, decile_col = "pred_win_prob") |>
-    dplyr::rename(prob_decile = .data$decile)
+    dplyr::rename(prob_decile = decile)
   save_csv_table(prob_decile_tbl, "ev_by_prob_decile.csv")
 
   model_ev_tbl <- summarise_ev_by_decile(scored, n_bins = EV_DECILE_N, decile_col = "model_ev") |>
-    dplyr::rename(model_ev_decile = .data$decile)
+    dplyr::rename(model_ev_decile = decile)
   save_csv_table(model_ev_tbl, "ev_by_model_ev_decile.csv")
 
   stable_prob <- identify_stable_profitable_deciles(
-    prob_decile_tbl |> dplyr::rename(decile = .data$prob_decile)
+    prob_decile_tbl |> dplyr::rename(decile = prob_decile)
   )
   stable_model_ev <- identify_stable_profitable_deciles(
-    model_ev_tbl |> dplyr::rename(decile = .data$model_ev_decile)
+    model_ev_tbl |> dplyr::rename(decile = model_ev_decile)
   )
   stable_all <- dplyr::bind_rows(
     stable_prob |> dplyr::mutate(decile_type = "pred_win_prob"),
@@ -505,10 +505,10 @@ save_expected_value_tables <- function(df) {
     message("Skip production EV deciles: backtest_rows.csv not found")
   }
 
-  save_expected_value_plots(prob_decile_tbl |> dplyr::rename(decile = .data$prob_decile))
+  save_expected_value_plots(prob_decile_tbl |> dplyr::rename(decile = prob_decile))
   write_ev_confidence_guidance(
-    prob_decile_tbl |> dplyr::rename(decile = .data$prob_decile),
-    model_ev_tbl |> dplyr::rename(decile = .data$model_ev_decile),
+    prob_decile_tbl |> dplyr::rename(decile = prob_decile),
+    model_ev_tbl |> dplyr::rename(decile = model_ev_decile),
     stable_prob,
     stable_model_ev,
     production_decile_tbl

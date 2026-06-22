@@ -133,3 +133,36 @@ def send_alert(
     elif date_yyyymmdd and log_channel == "watch":
         log_watch(date_yyyymmdd, f"ALERT sent: {message}")
     return True
+
+
+def send_team_broadcast(
+    message: str,
+    *,
+    date_yyyymmdd: Optional[str] = None,
+    alert_key: Optional[str] = None,
+    cooldown_minutes: int = 30,
+    log_channel: str = "watch",
+) -> bool:
+    """Push to team + admin (no alert prefix). Returns False if skipped by cooldown."""
+    key = alert_key or message[:80]
+    state = _load_alert_state()
+    last_sent = state.get(key)
+    if last_sent:
+        try:
+            last_dt = datetime.fromisoformat(str(last_sent))
+            elapsed = (datetime.now() - last_dt).total_seconds() / 60.0
+            if elapsed < cooldown_minutes:
+                return False
+        except ValueError:
+            pass
+
+    from tools.line_bot import send_line_predict_messages
+
+    send_line_predict_messages(message)
+    state[key] = datetime.now().isoformat(timespec="seconds")
+    _save_alert_state(state)
+    if date_yyyymmdd and log_channel == "run_today":
+        log_run_today(date_yyyymmdd, f"BROADCAST sent: {message[:60]}...")
+    elif date_yyyymmdd and log_channel == "watch":
+        log_watch(date_yyyymmdd, f"BROADCAST sent: {message[:60]}...")
+    return True

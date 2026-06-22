@@ -1,2 +1,2 @@
 skip_reason,win_profile,n_races,mean_model_ev,share_ev_ge_1,win_hit_rate,place_hit_rate,hypothetical_win_roi_pct,hypothetical_place_roi_pct,missed_wins,missed_places
-upset_profile,荒,64,2.048293860409987,0.984375,0.515625,0.765625,91.09375,88.4375,33,49
+upset_profile,荒,86,2.044922050440549,0.9883720930232558,0.4418604651162791,0.7674418604651163,78.13953488372093,88.83720930232558,38,66

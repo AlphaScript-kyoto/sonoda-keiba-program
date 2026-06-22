@@ -6,8 +6,51 @@ from typing import Optional
 from src.scraper.client import fetch_race_result_html
 from src.scraper.parser import has_result_table
 from src.scraper.race_id import build_race_id
+from src.scraper.race_list import list_race_ids_for_shutuba
 
 SEARCH_START = date(1995, 1, 1)
+
+
+def _yyyymmdd_to_date(ymd: str) -> date:
+    return date(int(ymd[:4]), int(ymd[4:6]), int(ymd[6:8]))
+
+
+def next_sonoda_date_in_master(
+    from_yyyymmdd: str,
+    master=None,
+) -> Optional[str]:
+    """master の開催日一覧から、指定日より後の最初の園田開催日。"""
+    if master is None:
+        from src.predictor.score import load_master
+
+        master = load_master()
+    dates = sorted(master["date"].astype(str).unique())
+    for d in dates:
+        if d > from_yyyymmdd:
+            return d
+    return None
+
+
+def find_next_sonoda_race_date_after(
+    from_yyyymmdd: str,
+    *,
+    max_days: int = 60,
+    master=None,
+) -> Optional[str]:
+    """指定日より後の次回園田開催日（master → 出馬表の順で探索）。"""
+    nxt = next_sonoda_date_in_master(from_yyyymmdd, master)
+    if nxt:
+        return nxt
+
+    start = _yyyymmdd_to_date(from_yyyymmdd)
+    for offset in range(1, max_days + 1):
+        ymd = (start + timedelta(days=offset)).strftime("%Y%m%d")
+        try:
+            if list_race_ids_for_shutuba(ymd):
+                return ymd
+        except Exception:
+            continue
+    return None
 
 
 def date_has_sonoda_races(date_yyyymmdd: str) -> bool:

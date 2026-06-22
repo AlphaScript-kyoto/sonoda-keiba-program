@@ -60,8 +60,8 @@ def records_to_export_df(records, *, strategy=DEFAULT_STRATEGY) -> pd.DataFrame:
                 wd_hit = rec.wide_firm_hit
                 wd_return = rec.wide_firm_return_yen
         elif exotic_high and rec.exotic_profile == UPSET:
-            sp_pts = rec.sanrenpuku_box_points
-            sp_hit = rec.sanrenpuku_box_hit
+            sp_pts = rec.sanrenpuku_formation_points
+            sp_hit = rec.sanrenpuku_formation_hit
             st_pts = 0
             st_hit = False
             wd_pts = rec.wide_upset_points
