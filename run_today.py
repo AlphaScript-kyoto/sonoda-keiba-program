@@ -14,6 +14,55 @@ COMPARE_SCRIPT = BASE_DIR / "scripts" / "compare_odds_timing.py"
 
 sys.path.insert(0, str(BASE_DIR))
 from src.predictor.automation_log import log_run_today, send_alert  # noqa: E402
+from src.scraper.sonoda_history import find_next_sonoda_race_date_after  # noqa: E402
+
+
+def _format_ja_month_day(date_yyyymmdd: str) -> str:
+    return f"{int(date_yyyymmdd[4:6])}\u6708{int(date_yyyymmdd[6:8])}\u65e5"
+
+
+def build_run_today_off_day_message(
+    date_yyyymmdd: str,
+    next_date_yyyymmdd: str | None,
+) -> str:
+    lines = [
+        "\u3010\u591c\u9593\u51e6\u7406\u3011",
+        (
+            f"{_format_ja_month_day(date_yyyymmdd)}\u306f\u4f11\u5834\u306e\u305f\u3081\u3001"
+            f"\u30c7\u30fc\u30bf\u53d6\u5f97\u30fb\u5b9f\u7e3e\u96c6\u8a08\u306f\u884c\u3044\u307e\u305b\u3093\u3067\u3057\u305f\u3002"
+        ),
+    ]
+    if next_date_yyyymmdd:
+        lines.append(
+            f"\u6b21\u56de\u958b\u50ac\u306f{_format_ja_month_day(next_date_yyyymmdd)}\u3067\u3059\u3002"
+        )
+    else:
+        lines.append(
+            "\u6b21\u56de\u958b\u50ac\u65e5\u306f\u73fe\u5728\u78ba\u5b9a\u3067\u304d\u3066\u304a\u308a\u307e\u305b\u3093\u3002"
+        )
+    return "\n".join(lines)
+
+
+def _is_sonoda_race_day(date_yyyymmdd: str) -> bool:
+    from src.scraper.race_list import list_race_ids_for_date
+
+    return bool(list_race_ids_for_date(date_yyyymmdd))
+
+
+def _handle_off_day(date_yyyymmdd: str) -> None:
+    next_date = find_next_sonoda_race_date_after(date_yyyymmdd)
+    msg = build_run_today_off_day_message(date_yyyymmdd, next_date)
+    log_run_today(date_yyyymmdd, "no Sonoda races; nightly skipped")
+    print(msg)
+    sent = send_alert(
+        msg,
+        date_yyyymmdd=date_yyyymmdd,
+        alert_key=f"run_today_off_{date_yyyymmdd}",
+        cooldown_minutes=60 * 12,
+        log_channel="run_today",
+    )
+    if not sent:
+        log_run_today(date_yyyymmdd, "off-day LINE skipped (cooldown)")
 
 
 def _has_snapshots(date_yyyymmdd: str) -> bool:
@@ -34,6 +83,26 @@ def _extract_summary(report_text: str) -> str:
     part = report_text.split("--- Summary ---", 1)[1].strip()
     lines = [ln for ln in part.splitlines() if ln.strip()][:8]
     return "\n".join(lines)
+
+
+def _send_odds_compare_alert(date_yyyymmdd: str) -> None:
+    """Send T-10 odds timing summary (race days with snapshots only)."""
+    from src.predictor.score import load_master
+    from src.predictor.snapshot_compare import compare_day, format_compare_summary_ja
+
+    rows = compare_day(date_yyyymmdd, load_master(), label="t_minus_10")
+    if not rows:
+        log_run_today(date_yyyymmdd, "odds compare skipped (no T-10 snapshots)")
+        return
+
+    msg = format_compare_summary_ja(rows, date_yyyymmdd=date_yyyymmdd, label="t_minus_10")
+    send_alert(
+        msg,
+        date_yyyymmdd=date_yyyymmdd,
+        alert_key=f"run_today_compare_{date_yyyymmdd}",
+        cooldown_minutes=60 * 12,
+        log_channel="run_today",
+    )
 
 
 def run_compare(date_yyyymmdd: str) -> str:
@@ -75,9 +144,13 @@ def run_compare(date_yyyymmdd: str) -> str:
 def main() -> None:
     today = datetime.now().strftime("%Y%m%d")
     log_run_today(today, "started")
-    print(f"本日の日付 {today} でデータを取得します...")
 
     try:
+        if not _is_sonoda_race_day(today):
+            _handle_off_day(today)
+            return
+
+        print(f"\u672c\u65e5\u306e\u65e5\u4ed8 {today} \u3067\u30c7\u30fc\u30bf\u3092\u53d6\u5f97\u3057\u307e\u3059...")
         proc = subprocess.run(
             [str(PYTHON_EXE), str(FETCH_SCRIPT), "--date", today],
             check=True,
@@ -98,21 +171,27 @@ def main() -> None:
             log_channel="run_today",
         )
 
+        from src.predictor.upset_high_bet_gate import (  # noqa: E402
+            save_state,
+            settle_pending_for_date,
+        )
+
+        gate_state = settle_pending_for_date(today)
+        save_state(gate_state)
+        log_run_today(today, "upset-high bet gate settled")
+
         report = run_compare(today)
         if report:
-            summary = _extract_summary(report)
-            send_alert(
-                f"\u30aa\u30c3\u30ba\u30bf\u30a4\u30df\u30f3\u30b0\u6bd4\u8f03 ({today})\n{summary}",
-                date_yyyymmdd=today,
-                alert_key=f"run_today_compare_{today}",
-                cooldown_minutes=60 * 12,
-                log_channel="run_today",
-            )
             print(f"\nReport: data/processed/snapshots/{today}/compare_report.txt")
+        _send_odds_compare_alert(today)
 
         from src.predictor.t10_daily_roi import (  # noqa: E402
             build_t10_daily_roi_report,
             format_t10_daily_roi_message,
+        )
+        from src.predictor.upset_high_daily_roi import (  # noqa: E402
+            build_upset_high_daily_roi_report,
+            format_upset_high_daily_roi_message,
         )
         from tools.line_bot import send_line_message  # noqa: E402
 
@@ -123,15 +202,16 @@ def main() -> None:
         print(roi_msg)
         send_line_message(roi_msg)
 
-        from src.predictor.upset_high_bet_gate import (  # noqa: E402
-            load_state,
-            save_state,
-            settle_pending_for_date,
+        uh_report = build_upset_high_daily_roi_report(
+            today,
+            state=gate_state,
+            fetch_payback=False,
         )
-
-        gate_state = settle_pending_for_date(today)
-        save_state(gate_state)
-        log_run_today(today, "upset-high bet gate settled")
+        uh_msg = format_upset_high_daily_roi_message(uh_report)
+        log_run_today(today, f"upset-high ROI report: {len(uh_report.bets)} bet(s)")
+        print("\n=== Upset x High ROI ===")
+        print(uh_msg)
+        send_line_message(uh_msg)
 
     except subprocess.CalledProcessError as exc:
         error_message = (exc.stderr or exc.stdout or "").strip() or "詳細なエラーメッセージなし"

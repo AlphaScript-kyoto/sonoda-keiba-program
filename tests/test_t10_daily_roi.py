@@ -35,6 +35,7 @@ def test_format_race_line():
                 race_id="x",
                 race_no=3,
                 race_name="テストレース",
+                race_class="C3三",
                 expectation_tier="S",
                 expectation_score=80,
                 win_points=1,
@@ -44,10 +45,19 @@ def test_format_race_line():
                 return_yen=1200,
                 win_hit=True,
                 place_hits=1,
+                win_bought=True,
+                win_umaban="11",
+                place_umabans=["11", "12"],
+                sanren_display="11-12,3-12,3,4,5(計5点)",
             )
         ],
     )
     msg = format_t10_daily_roi_message(report)
-    assert "R3" in msg
+    assert "3R" in msg
+    assert "期待値S" in msg
+    assert "単勝　11" in msg
+    assert "複勝　11,12" in msg
+    assert "三連複　11-12,3-12,3,4,5(計5点)" in msg
+    assert "投800円" in msg
     assert "回収150%" in msg
     assert "合計 1R" in msg

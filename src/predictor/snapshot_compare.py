@@ -333,3 +333,60 @@ def format_compare_report(
     lines.append(f"avg |fav_odds delta|: {avg_fav_delta:.2f}")
     lines.append(f"avg |odds_std delta|: {avg_std_delta:.1f}")
     return "\n".join(lines)
+
+
+def _label_display(label: str) -> str:
+    if label == "t_minus_10":
+        return "T-10"
+    if label.startswith("t_minus_"):
+        return "T-" + label.replace("t_minus_", "")
+    return label
+
+
+def format_compare_summary_ja(
+    rows: List[RaceTimingCompare],
+    *,
+    date_yyyymmdd: str,
+    label: str = "t_minus_10",
+) -> str:
+    """LINE\u7528\u306e\u65e5\u672c\u8a9e\u30b5\u30de\u30ea\u30fc\uff08\u958b\u50ac\u65e5\u306e\u7ba1\u7406\u8005\u5411\u3051\uff09\u3002"""
+    if not rows:
+        return ""
+
+    n = len(rows)
+    timing = _label_display(label)
+
+    def _count(attr: str) -> int:
+        return sum(1 for r in rows if getattr(r, attr))
+
+    winners = [r for r in rows if r.winner_umaban]
+    avg_fav_delta = sum(abs(r.fav_odds_live - r.fav_odds_final) for r in rows) / n
+
+    lines = [
+        f"\u3010\u30aa\u30c3\u30ba\u5909\u52d5\u30c1\u30a7\u30c3\u30af {date_yyyymmdd}\u3011",
+        f"{timing}\u6642\u70b9\u306e\u30aa\u30c3\u30ba vs \u78ba\u5b9a\u30aa\u30c3\u30ba\uff08{n}R\uff09",
+        "\u203b\u4e88\u60f3\u306e\u5f71\u97ff\u30c1\u30a7\u30c3\u30af\uff08\u6210\u7e3e\u3067\u306f\u3042\u308a\u307e\u305b\u3093\uff09",
+        "",
+        f"\u5358\u52dd\u30d7\u30ed\u30d5\u30a3\u30fc\u30eb\u4e00\u81f4: {_count('profile_match')}/{n}",
+        f"\u4e09\u9023\u30d7\u30ed\u30d5\u30a3\u30fc\u30eb\u4e00\u81f4: {_count('exotic_profile_match')}/{n}",
+        f"\u25ce\u99ac\u756a\u4e00\u81f4: {_count('mark_match')}/{n}",
+        f"\u5358\u52dd\u81ea\u4fe1\u5ea6\u4e00\u81f4: {_count('confidence_match')}/{n}",
+        f"\u4e09\u9023\u81ea\u4fe1\u5ea6\u4e00\u81f4: {_count('exotic_confidence_match')}/{n}",
+    ]
+    if winners:
+        lines.extend(
+            [
+                "",
+                f"1\u7740\u304c\u4e0a\u4f4d3\u982d\u5185\uff08{timing}\uff09: "
+                f"{sum(r.winner_in_live_top3 for r in winners)}/{len(winners)}",
+                f"1\u7740\u304c\u4e0a\u4f4d3\u982d\u5185\uff08\u78ba\u5b9a\u5f8c\uff09: "
+                f"{sum(r.winner_in_final_top3 for r in winners)}/{len(winners)}",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            f"1\u756a\u4eba\u6c17\u30aa\u30c3\u30ba\u306e\u5e73\u5747\u5909\u52d5: {avg_fav_delta:.2f}",
+        ]
+    )
+    return "\n".join(lines)

@@ -18,10 +18,12 @@ from src.predictor.backtest import (
 from src.predictor.bets import (
     DEFAULT_STRATEGY,
     _parse_odds_value,
+    _race_class,
     assign_marks,
     build_race_bet_plan,
     build_sanrenpuku_formation_firm,
     check_sanrenpuku_formation_firm_hit,
+    format_sanrenpuku_formation_umaban_line,
 )
 from src.predictor.expectation import TIER_RANK
 from src.predictor.formation_247 import parse_place_odds_low
@@ -47,7 +49,6 @@ def _should_buy_place(snap: dict, umaban: str) -> bool:
 
 def is_tier_s_plus(tier: str) -> bool:
     return TIER_RANK.get(tier, 99) <= TIER_RANK["S"]
-    return TIER_RANK.get(tier, 99) <= TIER_RANK["S"]
 
 
 @dataclass
@@ -55,6 +56,7 @@ class T10RaceRoi:
     race_id: str
     race_no: int
     race_name: str
+    race_class: str
     expectation_tier: str
     expectation_score: int
     win_points: int = 0
@@ -66,6 +68,10 @@ class T10RaceRoi:
     place_hits: int = 0
     sanren_hit: bool = False
     skipped_win_low_odds: bool = False
+    win_umaban: str = ""
+    win_bought: bool = False
+    place_umabans: List[str] = field(default_factory=list)
+    sanren_display: str = ""
 
     @property
     def roi_pct(self) -> float:
@@ -158,6 +164,7 @@ def compute_t10_race_roi(
         race_id=race_id,
         race_no=int(final_race["race_no"].iloc[0]),
         race_name=str(final_race.get("race_name", pd.Series([""])).iloc[0]),
+        race_class=_race_class(final_race),
         expectation_tier=plan.expectation_tier,
         expectation_score=int(plan.expectation_score or 0),
     )
@@ -167,6 +174,8 @@ def compute_t10_race_roi(
 
     if pd.notna(axis_odds) and axis_odds >= WIN_MIN_ODDS:
         row.win_points = 1
+        row.win_bought = True
+        row.win_umaban = axis_u
         investment += BET_UNIT
         if axis_u == finish[0]:
             row.win_hit = True
@@ -177,6 +186,7 @@ def compute_t10_race_roi(
     for u in (axis_u, second_u):
         if not u or not _should_buy_place(snap, u):
             continue
+        row.place_umabans.append(u)
         row.place_points += 1
         investment += BET_UNIT
         if u in finish[:3]:
@@ -186,6 +196,8 @@ def compute_t10_race_roi(
     formation = build_sanrenpuku_formation_firm(top5)
     if formation and formation.points > 0:
         row.sanren_points = formation.points
+        sanren_line = format_sanrenpuku_formation_umaban_line(formation)
+        row.sanren_display = f"{sanren_line}(\u8a08{formation.points}\u70b9)"
         investment += formation.points * BET_UNIT
         if check_sanrenpuku_formation_firm_hit(formation, finish):
             row.sanren_hit = True
@@ -239,6 +251,35 @@ def build_t10_daily_roi_report(
     return report
 
 
+def _format_t10_race_block(r: T10RaceRoi) -> List[str]:
+    cls = f" {r.race_class}" if r.race_class else ""
+    name = r.race_name[:16] if r.race_name else ""
+    lines = [f"{r.race_no}R {name}{cls} \u671f\u5f85\u5024{r.expectation_tier}"]
+
+    if r.win_bought:
+        lines.append(f"\u5358\u52dd\u3000{r.win_umaban}")
+    elif r.skipped_win_low_odds:
+        lines.append("\u5358\u52dd\u3000\u898b\u9001\u308a")
+    else:
+        lines.append("\u5358\u52dd\u3000\u2015")
+
+    if r.place_umabans:
+        lines.append(f"\u8907\u52dd\u3000{','.join(r.place_umabans)}")
+    else:
+        lines.append("\u8907\u52dd\u3000\u2015")
+
+    if r.sanren_display:
+        lines.append(f"\u4e09\u9023\u8907\u3000{r.sanren_display}")
+    else:
+        lines.append("\u4e09\u9023\u8907\u3000\u2015")
+
+    lines.append(
+        f"\u6295{r.investment}\u5186\u3000\u6255{r.return_yen}\u5186\u3000"
+        f"\u56de\u53ce{r.roi_pct:.0f}%"
+    )
+    return lines
+
+
 def format_t10_daily_roi_message(report: T10DailyRoiReport) -> str:
     lines: List[str] = [
         f"【園田 T-10実績 {report.date}】",
@@ -256,24 +297,12 @@ def format_t10_daily_roi_message(report: T10DailyRoiReport) -> str:
         return "\n".join(lines)
 
     for r in report.races:
-        win_note = "単勝見送" if r.skipped_win_low_odds and r.win_points == 0 else ""
-        hit_bits = []
-        if r.win_hit:
-            hit_bits.append("単")
-        if r.place_hits:
-            hit_bits.append(f"複{r.place_hits}")
-        if r.sanren_hit:
-            hit_bits.append("三連")
-        hit_txt = ",".join(hit_bits) if hit_bits else "外れ"
-        pts = r.win_points + r.place_points + r.sanren_points
-        suffix = f" {win_note}" if win_note else ""
-        lines.append(f"R{r.race_no} {r.race_name[:12]} 期待値{r.expectation_tier}")
-        lines.append(
-            f"  {pts}点 投{r.investment} 払{r.return_yen} "
-            f"回収{r.roi_pct:.0f}% {hit_txt}{suffix}"
-        )
+        lines.extend(_format_t10_race_block(r))
+        lines.append("")
 
-    lines.append("")
+    if lines and lines[-1] == "":
+        lines.pop()
+
     total_pts = sum(r.win_points + r.place_points + r.sanren_points for r in report.races)
     lines.append(
         f"合計 {len(report.races)}R {total_pts}点 "
