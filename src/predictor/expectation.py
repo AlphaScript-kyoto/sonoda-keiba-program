@@ -14,6 +14,7 @@ DEFAULT_TIERS_PATH = ROOT / "config" / "expectation_tiers.json"
 
 TIER_ORDER: Tuple[str, ...] = ("SS", "S", "A", "B", "C")
 TIER_RANK: Dict[str, int] = {t: i for i, t in enumerate(TIER_ORDER)}
+S_FAV_ODDS_MAX = 1.6
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,44 @@ def is_ss_eligible(plan: RaceBetPlan) -> bool:
     )
 
 
+def is_s_eligible(plan: RaceBetPlan) -> bool:
+    """S/SS 付与の必須条件。"""
+    fav = plan.fav_odds
+    return bool(fav and fav > 0 and fav <= S_FAV_ODDS_MAX)
+
+
+def _head_strength_bonus(plan: RaceBetPlan) -> int:
+    """軸の強さ（勝率・gap・1番人気オッズ）で S 帯内の粒度を付ける。"""
+    bonus = 0
+    wp = plan.win_prob_top
+    gap = plan.prob_gap
+    if wp >= 0.98:
+        bonus += 6
+    elif wp >= 0.95:
+        bonus += 4
+    elif wp >= 0.88:
+        bonus += 2
+
+    if gap >= 0.95:
+        bonus += 6
+    elif gap >= 0.90:
+        bonus += 4
+    elif gap >= 0.80:
+        bonus += 2
+
+    fav = plan.fav_odds
+    if fav and fav > 0:
+        if fav <= 1.3:
+            bonus += 6
+        elif fav <= 1.5:
+            bonus += 4
+        elif fav <= 2.0:
+            bonus += 2
+        elif fav <= 2.5:
+            bonus += 1
+    return bonus
+
+
 def compute_expectation_score(plan: RaceBetPlan) -> int:
     """暫定スコア（0〜100）。三連「高」以外は 0。"""
     if plan.exotic_confidence != "高":
@@ -83,6 +122,7 @@ def compute_expectation_score(plan: RaceBetPlan) -> int:
     if plan.win_profile == "堅":
         score += 4
 
+    score += _head_strength_bonus(plan)
     return min(score, 100)
 
 
@@ -99,6 +139,8 @@ def tier_from_score(
             break
     if tier == "SS" and plan is not None and not is_ss_eligible(plan):
         tier = "S"
+    if tier in ("SS", "S") and plan is not None and not is_s_eligible(plan):
+        tier = "A"
     return tier
 
 

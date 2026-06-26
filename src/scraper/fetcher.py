@@ -1,7 +1,9 @@
 """日付・期間単位のレース取得オーケストレーション。"""
 
+import json
+import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 import requests
 
@@ -51,6 +53,38 @@ class RangeFetchResult:
         return sum(1 for d in self.days if d.skipped and not d.resumed)
 
 
+def _race_ids_from_schedule(date_yyyymmdd: str) -> List[str]:
+    from src.scraper.race_snapshots import load_schedule
+
+    schedule = load_schedule(date_yyyymmdd)
+    if not schedule:
+        return []
+    ids: List[str] = []
+    for race in schedule.get("races", []):
+        rid = str(race.get("race_id", "")).strip()
+        if rid:
+            ids.append(rid)
+    return sorted(set(ids))
+
+
+def resolve_race_ids_for_fetch(date_yyyymmdd: str) -> List[str]:
+    """
+    取得対象 race_id 一覧。
+
+    当日 schedule.json があれば開催全Rを必ず含める（1Rページのリンクが
+    途中経過で欠けていても全件取得できるようにする）。
+    """
+    schedule_ids = _race_ids_from_schedule(date_yyyymmdd)
+    listed_ids = list_race_ids_for_date(date_yyyymmdd)
+    merged = sorted(set(schedule_ids) | set(listed_ids))
+    return merged if merged else listed_ids
+
+
+def _fetch_race_result_rows(race_id: str) -> List[Dict[str, Any]]:
+    html = fetch_race_result_html(race_id)
+    return parse_race_result(html, race_id)
+
+
 def fetch_day(
     date_yyyymmdd: str,
     *,
@@ -66,7 +100,7 @@ def fetch_day(
         result.csv_path = str(csv_path)
         return result
 
-    race_ids = list_race_ids_for_date(date_yyyymmdd)
+    race_ids = resolve_race_ids_for_fetch(date_yyyymmdd)
 
     if not race_ids:
         result.skipped = True
@@ -74,17 +108,37 @@ def fetch_day(
 
     result.race_ids = race_ids
     all_rows: List[Dict[str, Any]] = []
+    fetched_ids: Set[str] = set()
 
-    for race_id in race_ids:
-        try:
-            html = fetch_race_result_html(race_id)
-        except NetkeibaBlockedError:
-            raise
-        except requests.RequestException as exc:
-            print(f"  WARN: {race_id} 取得失敗 ({exc})", flush=True)
-            continue
-        rows = parse_race_result(html, race_id)
-        all_rows.extend(rows)
+    def _pull(ids: List[str]) -> None:
+        for race_id in ids:
+            try:
+                rows = _fetch_race_result_rows(race_id)
+            except NetkeibaBlockedError:
+                raise
+            except requests.RequestException as exc:
+                print(f"  WARN: {race_id} 取得失敗 ({exc})", flush=True)
+                continue
+            if rows:
+                all_rows.extend(rows)
+                fetched_ids.add(str(race_id))
+
+    _pull(race_ids)
+    missing = [rid for rid in race_ids if rid not in fetched_ids]
+    if missing:
+        print(
+            f"  WARN: {len(missing)}R 未取得のため再試行: {missing}",
+            flush=True,
+        )
+        time.sleep(3)
+        _pull(missing)
+
+    missing_after = [rid for rid in race_ids if rid not in fetched_ids]
+    if missing_after:
+        print(
+            f"  WARN: 再試行後も未取得 {len(missing_after)}R: {missing_after}",
+            flush=True,
+        )
 
     result.horse_rows = all_rows
 

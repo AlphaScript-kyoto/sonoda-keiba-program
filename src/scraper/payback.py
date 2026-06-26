@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from bs4 import BeautifulSoup
+import requests
 
 from config.settings import DATA_PROCESSED_DIR
 from src.scraper.client import NetkeibaBlockedError, fetch_race_result_html
@@ -246,5 +247,9 @@ def fetch_paybacks(
             if stop_on_block:
                 raise
             break
+        except (requests.RequestException, OSError) as exc:
+            # 1レース分の取得失敗で夜間レポート全体を止めない
+            print(f"payback fetch skipped {rid}: {exc}", flush=True)
+            continue
 
     return out

@@ -141,6 +141,113 @@ def run_compare(date_yyyymmdd: str) -> str:
     return proc.stdout
 
 
+def send_nightly_roi_reports(date_yyyymmdd: str, gate_state) -> None:
+    """T-10 / 荒×High の夜間回収率LINE。払戻取得失敗時はキャッシュで続行。"""
+    from src.predictor.t10_daily_roi import (  # noqa: E402
+        build_t10_daily_roi_report,
+        format_t10_daily_roi_message,
+    )
+    from src.predictor.upset_high_daily_roi import (  # noqa: E402
+        build_upset_high_daily_roi_report,
+        format_upset_high_daily_roi_message,
+    )
+    from tools.line_bot import send_line_message, send_line_predict_messages  # noqa: E402
+
+    try:
+        roi_report = build_t10_daily_roi_report(date_yyyymmdd, fetch_payback=True)
+    except Exception as exc:
+        log_run_today(
+            date_yyyymmdd,
+            f"T-10 ROI fetch_payback failed ({exc}); retry cache-only",
+        )
+        roi_report = build_t10_daily_roi_report(date_yyyymmdd, fetch_payback=False)
+
+    roi_msg = format_t10_daily_roi_message(roi_report)
+    log_run_today(date_yyyymmdd, f"T-10 ROI report: {len(roi_report.races)} race(s)")
+    print("\n=== T-10 ROI (S+) ===")
+    print(roi_msg)
+    send_line_predict_messages(roi_msg)
+    log_run_today(date_yyyymmdd, "T-10 ROI LINE sent (team + admin)")
+
+    try:
+        uh_report = build_upset_high_daily_roi_report(
+            date_yyyymmdd,
+            state=gate_state,
+            fetch_payback=False,
+        )
+        uh_msg = format_upset_high_daily_roi_message(uh_report)
+        log_run_today(date_yyyymmdd, f"upset-high ROI report: {len(uh_report.bets)} bet(s)")
+        print("\n=== Upset x High ROI ===")
+        print(uh_msg)
+        send_line_message(uh_msg)
+    except Exception as exc:
+        log_run_today(date_yyyymmdd, f"upset-high ROI FAILED: {exc}")
+        send_alert(
+            f"\u591c\u9593\u56de\u53ce\u7387\uff08\u8352\u00d7High\uff09\u306e\u914d\u4fe1\u306b\u5931\u6557 ({date_yyyymmdd})\n"
+            f"\u7406\u7531: {exc}",
+            date_yyyymmdd=date_yyyymmdd,
+            alert_key=f"run_today_uh_roi_fail_{date_yyyymmdd}",
+            cooldown_minutes=60,
+            log_channel="run_today",
+        )
+        raise
+
+
+def _validate_fetch_completeness(date_yyyymmdd: str) -> None:
+    """schedule がある日は raw CSV のレース数を突合し、不足ならアラート。"""
+    from src.scraper.race_snapshots import load_schedule
+    from src.storage.csv_store import horses_csv_path, read_horses_csv
+
+    schedule = load_schedule(date_yyyymmdd)
+    if not schedule:
+        return
+
+    expected_ids = {
+        str(r["race_id"])
+        for r in schedule.get("races", [])
+        if r.get("race_id")
+    }
+    if not expected_ids:
+        return
+
+    csv_path = horses_csv_path(date_yyyymmdd)
+    if not csv_path.exists():
+        msg = f"データ取得後も CSV がありません ({date_yyyymmdd})"
+        log_run_today(date_yyyymmdd, msg)
+        send_alert(
+            msg,
+            date_yyyymmdd=date_yyyymmdd,
+            alert_key=f"run_today_fetch_incomplete_{date_yyyymmdd}",
+            cooldown_minutes=60,
+            log_channel="run_today",
+        )
+        return
+
+    df = read_horses_csv(csv_path)
+    got_ids = set(df["race_id"].astype(str).unique())
+
+    missing = sorted(expected_ids - got_ids)
+    if missing:
+        msg = (
+            f"\u30c7\u30fc\u30bf\u53d6\u5f97\u4e0d\u5341 ({date_yyyymmdd})\n"
+            f"\u4e88\u5b9a {len(expected_ids)}R / \u53d6\u5f97 {len(got_ids)}R\n"
+            f"\u672a\u53d6\u5f97: {', '.join(missing)}"
+        )
+        log_run_today(date_yyyymmdd, msg)
+        send_alert(
+            msg,
+            date_yyyymmdd=date_yyyymmdd,
+            alert_key=f"run_today_fetch_incomplete_{date_yyyymmdd}",
+            cooldown_minutes=60,
+            log_channel="run_today",
+        )
+    else:
+        log_run_today(
+            date_yyyymmdd,
+            f"fetch completeness OK ({len(got_ids)}/{len(expected_ids)}R)",
+        )
+
+
 def main() -> None:
     today = datetime.now().strftime("%Y%m%d")
     log_run_today(today, "started")
@@ -163,6 +270,7 @@ def main() -> None:
         if proc.stdout:
             print(proc.stdout)
         log_run_today(today, "fetch_daily completed")
+        _validate_fetch_completeness(today)
         send_alert(
             f"\u30c7\u30fc\u30bf\u53d6\u5f97\u5b8c\u4e86 ({today})",
             date_yyyymmdd=today,
@@ -185,33 +293,7 @@ def main() -> None:
             print(f"\nReport: data/processed/snapshots/{today}/compare_report.txt")
         _send_odds_compare_alert(today)
 
-        from src.predictor.t10_daily_roi import (  # noqa: E402
-            build_t10_daily_roi_report,
-            format_t10_daily_roi_message,
-        )
-        from src.predictor.upset_high_daily_roi import (  # noqa: E402
-            build_upset_high_daily_roi_report,
-            format_upset_high_daily_roi_message,
-        )
-        from tools.line_bot import send_line_message  # noqa: E402
-
-        roi_report = build_t10_daily_roi_report(today, fetch_payback=True)
-        roi_msg = format_t10_daily_roi_message(roi_report)
-        log_run_today(today, f"T-10 ROI report: {len(roi_report.races)} race(s)")
-        print("\n=== T-10 ROI (S+) ===")
-        print(roi_msg)
-        send_line_message(roi_msg)
-
-        uh_report = build_upset_high_daily_roi_report(
-            today,
-            state=gate_state,
-            fetch_payback=False,
-        )
-        uh_msg = format_upset_high_daily_roi_message(uh_report)
-        log_run_today(today, f"upset-high ROI report: {len(uh_report.bets)} bet(s)")
-        print("\n=== Upset x High ROI ===")
-        print(uh_msg)
-        send_line_message(uh_msg)
+        send_nightly_roi_reports(today, gate_state)
 
     except subprocess.CalledProcessError as exc:
         error_message = (exc.stderr or exc.stdout or "").strip() or "詳細なエラーメッセージなし"

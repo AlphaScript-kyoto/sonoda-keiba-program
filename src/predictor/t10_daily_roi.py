@@ -1,4 +1,4 @@
-"""T-10 snapshot ROI report for expectation tier S+ races (admin nightly)."""
+"""T-10 snapshot ROI report for expectation tier S+ races (nightly team broadcast)."""
 
 from __future__ import annotations
 
@@ -97,6 +97,28 @@ class T10DailyRoiReport:
     def total_roi_pct(self) -> float:
         inv = self.total_investment
         return (self.total_return / inv * 100.0) if inv else 0.0
+
+    @property
+    def total_points(self) -> int:
+        return sum(r.win_points + r.place_points + r.sanren_points for r in self.races)
+
+    @property
+    def win_hit_count(self) -> int:
+        return sum(1 for r in self.races if r.win_hit)
+
+    @property
+    def place_hit_count(self) -> int:
+        return sum(r.place_hits for r in self.races)
+
+    @property
+    def sanren_hit_count(self) -> int:
+        return sum(1 for r in self.races if r.sanren_hit)
+
+    @property
+    def race_hit_count(self) -> int:
+        return sum(
+            1 for r in self.races if r.win_hit or r.place_hits > 0 or r.sanren_hit
+        )
 
 
 def _load_snapshot_entries(date_yyyymmdd: str, race_id: str) -> Optional[dict]:
@@ -280,6 +302,29 @@ def _format_t10_race_block(r: T10RaceRoi) -> List[str]:
     return lines
 
 
+def _format_t10_daily_summary(report: T10DailyRoiReport) -> List[str]:
+    """文末の当日合計ブロック。"""
+    if not report.races:
+        return []
+
+    profit = report.total_return - report.total_investment
+    profit_sign = "+" if profit > 0 else ""
+    return [
+        "",
+        "【当日合計】",
+        f"対象 {len(report.races)}R / {report.total_points}点",
+        f"投資 {report.total_investment:,}円",
+        f"払戻 {report.total_return:,}円",
+        f"収支 {profit_sign}{profit:,}円",
+        f"回収率 {report.total_roi_pct:.0f}%",
+        (
+            f"的中 {report.race_hit_count}/{len(report.races)}R"
+            f"（単{report.win_hit_count} 複{report.place_hit_count}"
+            f" 三連{report.sanren_hit_count}）"
+        ),
+    ]
+
+
 def format_t10_daily_roi_message(report: T10DailyRoiReport) -> str:
     lines: List[str] = [
         f"【園田 T-10実績 {report.date}】",
@@ -303,10 +348,5 @@ def format_t10_daily_roi_message(report: T10DailyRoiReport) -> str:
     if lines and lines[-1] == "":
         lines.pop()
 
-    total_pts = sum(r.win_points + r.place_points + r.sanren_points for r in report.races)
-    lines.append(
-        f"合計 {len(report.races)}R {total_pts}点 "
-        f"投{report.total_investment} 払{report.total_return} "
-        f"回収{report.total_roi_pct:.0f}%"
-    )
+    lines.extend(_format_t10_daily_summary(report))
     return "\n".join(lines)

@@ -24,6 +24,8 @@ from src.predictor.expectation import (
 
     compute_expectation_score,
 
+    is_s_eligible,
+
     is_ss_eligible,
 
     tier_from_score,
@@ -135,7 +137,7 @@ def test_exotic_low_scores_zero():
 
 def test_firm_high_becomes_s_not_ss_by_default():
 
-    p = _plan()
+    p = _plan(fav_odds=1.5)
 
     score = compute_expectation_score(p)
 
@@ -148,14 +150,34 @@ def test_firm_high_becomes_s_not_ss_by_default():
     assert is_ss_eligible(p)
 
 
-
+def test_head_strength_bonus_spreads_s_band():
+    base = dict(
+        exotic_confidence="高",
+        exotic_profile="堅",
+        confidence="高",
+        win_profile="堅",
+        win_prob_top=1.0,
+        prob_gap=1.0,
+    )
+    strong = _plan(fav_odds=1.1, **base)
+    weak = _plan(fav_odds=2.6, **base)
+    border = _plan(
+        fav_odds=1.4,
+        win_prob_top=0.91,
+        prob_gap=0.82,
+        **{k: v for k, v in base.items() if k not in ("win_prob_top", "prob_gap")},
+    )
+    assert compute_expectation_score(strong) >= 92
+    assert 75 <= compute_expectation_score(weak) < 92
+    assert compute_expectation_score(weak) < compute_expectation_score(strong)
+    assert compute_expectation_score(border) < compute_expectation_score(weak)
 
 
 def test_ss_requires_score_and_eligibility():
 
     cfg = _cfg()
 
-    p = _plan(win_prob_top=0.90, prob_gap=0.75)
+    p = _plan(win_prob_top=0.90, prob_gap=0.75, fav_odds=1.3)
 
     p.expectation_score = 95
 
@@ -165,7 +187,7 @@ def test_ss_requires_score_and_eligibility():
 
 
 
-    p2 = _plan(exotic_profile="荒", win_prob_top=0.90, prob_gap=0.75)
+    p2 = _plan(exotic_profile="荒", win_prob_top=0.90, prob_gap=0.75, fav_odds=1.3)
 
     assert not is_ss_eligible(p2)
 
@@ -173,6 +195,31 @@ def test_ss_requires_score_and_eligibility():
 
 
 
+
+
+def test_s_requires_fav_odds_cap():
+
+    cfg = _cfg()
+
+    p = _plan(fav_odds=2.2, win_prob_top=1.0, prob_gap=1.0)
+
+    assert not is_s_eligible(p)
+
+    assert compute_expectation_score(p) >= 75
+
+    assert tier_from_score(compute_expectation_score(p), cfg, p) == "A"
+
+    p_border = _plan(fav_odds=1.7, win_prob_top=1.0, prob_gap=1.0)
+
+    assert not is_s_eligible(p_border)
+
+    assert tier_from_score(compute_expectation_score(p_border), cfg, p_border) == "A"
+
+    p_ok = _plan(fav_odds=1.6, win_prob_top=1.0, prob_gap=1.0)
+
+    assert is_s_eligible(p_ok)
+
+    assert tier_from_score(compute_expectation_score(p_ok), cfg, p_ok) in ("S", "SS")
 
 
 def test_tier_from_score_boundaries():

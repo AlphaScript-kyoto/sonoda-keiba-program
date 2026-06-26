@@ -60,4 +60,6 @@ def test_format_race_line():
     assert "三連複　11-12,3-12,3,4,5(計5点)" in msg
     assert "投800円" in msg
     assert "回収150%" in msg
-    assert "合計 1R" in msg
+    assert "【当日合計】" in msg
+    assert "回収率 150%" in msg
+    assert "対象 1R" in msg
