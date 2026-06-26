@@ -325,20 +325,32 @@ def _format_t10_daily_summary(report: T10DailyRoiReport) -> List[str]:
     ]
 
 
+def _format_report_date_label(date_yyyymmdd: str) -> str:
+    return f"{int(date_yyyymmdd[4:6])}\u6708{int(date_yyyymmdd[6:8])}\u65e5"
+
+
 def format_t10_daily_roi_message(report: T10DailyRoiReport) -> str:
+    date_label = _format_report_date_label(report.date)
     lines: List[str] = [
-        f"【園田 T-10実績 {report.date}】",
-        "期待値S以上のみ",
-        "買い: ◎単(2倍以上) + ◎○複勝(1.5倍以上) + 三連複5点",
+        f"\u3010\u5712\u7530 {date_label} \u8cb7\u3044\u76ee\u306e\u6210\u7e3e\u3011",
+        "\u203b\u30ec\u30fc\u30b910\u5206\u524d\u306b\u914d\u4fe1\u3057\u305f\u4e88\u60f3\u3069\u304a\u308a\u306b\u8cb7\u3063\u305f\u60f3\u5b9a",
+        "\u5bfe\u8c61: \u671f\u5f85\u5024S\u4ee5\u4e0a\u306e\u30ec\u30fc\u30b9",
+        "\u8cb7\u3044\u65b9: \u25ce\u5358\u52dd(2\u500d\u4ee5\u4e0a) + \u25ce\u25cb\u8907\u52dd(1.5\u500d\u4ee5\u4e0a) + \u4e09\u9023\u8907"
+        "5\u70b9",
         "",
     ]
 
     if not report.races:
-        lines.append("対象レースなし")
+        lines.append("\u5bfe\u8c61\u30ec\u30fc\u30b9\u306a\u3057")
         if report.skipped_not_s_plus:
-            lines.append(f"(S未満 {report.skipped_not_s_plus}R)")
+            lines.append(
+                f"\uff08\u671f\u5f85\u5024S\u672a\u6e80\u306e\u305f\u3081\u5bfe\u8c61\u5916: "
+                f"{report.skipped_not_s_plus}\u30ec\u30fc\u30b9\uff09"
+            )
         if report.skipped_no_result:
-            lines.append(f"(結果未確定 {report.skipped_no_result}R)")
+            lines.append(
+                f"\uff08\u7d50\u679c\u672a\u53d6\u5f97: {report.skipped_no_result}\u30ec\u30fc\u30b9\uff09"
+            )
         return "\n".join(lines)
 
     for r in report.races:

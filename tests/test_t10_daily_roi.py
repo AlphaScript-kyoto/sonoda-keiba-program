@@ -23,8 +23,10 @@ def test_should_buy_place_min_odds():
 
 def test_format_empty_report():
     msg = format_t10_daily_roi_message(T10DailyRoiReport(date="20260618"))
-    assert "1.5倍以上" in msg
-    assert "対象レースなし" in msg
+    assert "\u3010\u5712\u7530 6\u670818\u65e5 \u8cb7\u3044\u76ee\u306e\u6210\u7e3e\u3011" in msg
+    assert "\u30ec\u30fc\u30b910\u5206\u524d" in msg
+    assert "1.5\u500d\u4ee5\u4e0a" in msg
+    assert "\u5bfe\u8c61\u30ec\u30fc\u30b9\u306a\u3057" in msg
 
 
 def test_format_race_line():
