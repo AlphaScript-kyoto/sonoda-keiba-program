@@ -57,11 +57,11 @@ def _cfg() -> ExpectationTierConfig:
 
         {
 
-            "tier_min_scores": {"SS": 92, "S": 75, "A": 58, "B": 42, "C": 0},
+            "tier_min_scores": {"SS": 94, "S": 75, "A": 58, "B": 42, "C": 0},
 
-            "note_tiers": ["SS", "S"],
+            "note_tiers": ["SS", "S", "A"],
 
-            "x_tiers": ["A", "B", "C"],
+            "x_tiers": ["B", "C"],
 
             "venue_label": "園田",
 
@@ -147,7 +147,7 @@ def test_firm_high_becomes_s_not_ss_by_default():
 
     assert p.expectation_tier == "S"
 
-    assert is_ss_eligible(p)
+    assert not is_ss_eligible(p)
 
 
 def test_head_strength_bonus_spreads_s_band():
@@ -177,7 +177,7 @@ def test_ss_requires_score_and_eligibility():
 
     cfg = _cfg()
 
-    p = _plan(win_prob_top=0.90, prob_gap=0.75, fav_odds=1.3)
+    p = _plan(win_prob_top=0.92, prob_gap=0.85, fav_odds=1.2)
 
     p.expectation_score = 95
 
@@ -187,11 +187,19 @@ def test_ss_requires_score_and_eligibility():
 
 
 
-    p2 = _plan(exotic_profile="荒", win_prob_top=0.90, prob_gap=0.75, fav_odds=1.3)
+    p2 = _plan(exotic_profile="荒", win_prob_top=0.92, prob_gap=0.85, fav_odds=1.2)
 
     assert not is_ss_eligible(p2)
 
     assert tier_from_score(95, cfg, p2) == "S"
+
+
+
+    p3 = _plan(win_prob_top=0.92, prob_gap=0.85, fav_odds=1.5)
+
+    assert not is_ss_eligible(p3)
+
+    assert tier_from_score(95, cfg, p3) == "S"
 
 
 
@@ -226,9 +234,9 @@ def test_tier_from_score_boundaries():
 
     cfg = _cfg()
 
-    assert tier_from_score(92, cfg) == "SS"
+    assert tier_from_score(94, cfg) == "SS"
 
-    assert tier_from_score(91, cfg) == "S"
+    assert tier_from_score(93, cfg) == "S"
 
     assert tier_from_score(75, cfg) == "S"
 

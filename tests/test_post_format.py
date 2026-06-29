@@ -87,12 +87,31 @@ def test_format_note_ss_tier_line():
 def test_format_race_copy_tier_routing():
     ex = _ex_df()
     note_text = format_race_copy(_plan("S"), ex, ex)
+    a_text = format_race_copy(_plan("A"), ex, ex)
     x_text = format_race_copy(_plan("C"), ex, ex)
     assert "▼ レースの展開" in note_text
+    assert "▼ レースの展開" in a_text
+    assert "▼ 印と根拠" in a_text
+    assert "◎ 1. マスクト" in a_text
+    assert "☆ 9. フィフス" in a_text
+    assert a_text.count("  ・") == note_text.count("  ・")
     assert "▼ レースの展開" not in x_text
+    assert "  ・" not in x_text
     assert "◎：1　マスクト" in x_text
     assert copy_channel_label("S") == "詳細（展開・根拠）"
+    assert copy_channel_label("A") == "詳細（展開・根拠）"
     assert copy_channel_label("B") == "簡易（印のみ）"
+
+
+def test_format_note_race_rich_a_tier():
+    text = format_note_race_rich(_plan("A"), _ex_df(), _ex_df())
+    assert "期待値A" in text
+    assert "▼ レースの展開" in text
+    assert "▼ 印と根拠" in text
+    assert "△ 5. フォース" in text
+    assert "☆ 9. フィフス" in text
+    rationale = text.split("▼ 印と根拠", 1)[1]
+    assert "  ・" in rationale
 
 
 def test_format_x_race():

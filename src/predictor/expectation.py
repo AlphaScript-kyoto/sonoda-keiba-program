@@ -15,6 +15,7 @@ DEFAULT_TIERS_PATH = ROOT / "config" / "expectation_tiers.json"
 TIER_ORDER: Tuple[str, ...] = ("SS", "S", "A", "B", "C")
 TIER_RANK: Dict[str, int] = {t: i for i, t in enumerate(TIER_ORDER)}
 S_FAV_ODDS_MAX = 1.6
+SS_FAV_ODDS_MAX = 1.3
 
 
 @dataclass(frozen=True)
@@ -32,8 +33,8 @@ class ExpectationTierConfig:
                 raise ValueError(f"tier_min_scores missing {t}")
         return cls(
             tier_min_scores=mins,
-            note_tiers=frozenset(data.get("note_tiers", ["SS", "S"])),
-            x_tiers=frozenset(data.get("x_tiers", ["A", "B", "C"])),
+            note_tiers=frozenset(data.get("note_tiers", ["SS", "S", "A"])),
+            x_tiers=frozenset(data.get("x_tiers", ["B", "C"])),
             venue_label=str(data.get("venue_label", "園田")),
         )
 
@@ -45,12 +46,14 @@ def load_expectation_config(path: Optional[Path] = None) -> ExpectationTierConfi
 
 
 def is_ss_eligible(plan: RaceBetPlan) -> bool:
-    """SS 付与の最低条件（厳しめ）。"""
+    """SS 付与の最低条件（スコア帯に加えて軸の圧倒度を要求）。"""
+    fav = plan.fav_odds
     return (
         plan.exotic_confidence == "高"
         and plan.exotic_profile == "堅"
-        and plan.win_prob_top >= 0.88
-        and plan.prob_gap >= 0.70
+        and plan.win_prob_top >= 0.90
+        and plan.prob_gap >= 0.80
+        and bool(fav and fav > 0 and fav <= SS_FAV_ODDS_MAX)
     )
 
 

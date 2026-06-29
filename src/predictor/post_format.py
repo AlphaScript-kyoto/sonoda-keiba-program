@@ -39,20 +39,14 @@ def format_marks_lines(
     return lines
 
 
-def format_note_race_rich(
+def _format_note_race_sections(
     plan: RaceBetPlan,
-    win_df: pd.DataFrame,
-    exotic_df: Optional[pd.DataFrame] = None,
-    config: Optional[ExpectationTierConfig] = None,
+    flow_lines: List[str],
+    mark_lines: List[str],
+    config: ExpectationTierConfig,
 ) -> str:
-    """SS/S 用（展開・印と根拠のみ）。"""
-    cfg = config or load_expectation_config()
-    flow_lines, mark_lines = build_note_rationale_sections(
-        plan, win_df, exotic_df, sort_marks(plan.marks)
-    )
-
     lines = [
-        f"【{cfg.venue_label} {plan.race_no}R】{plan.race_name}　期待値{plan.expectation_tier}",
+        f"【{config.venue_label} {plan.race_no}R】{plan.race_name}　期待値{plan.expectation_tier}",
     ]
     if flow_lines:
         lines.extend(["", "▼ レースの展開", *[f"・{ln}" for ln in flow_lines]])
@@ -60,11 +54,25 @@ def format_note_race_rich(
     return "\n".join(lines)
 
 
+def format_note_race_rich(
+    plan: RaceBetPlan,
+    win_df: pd.DataFrame,
+    exotic_df: Optional[pd.DataFrame] = None,
+    config: Optional[ExpectationTierConfig] = None,
+) -> str:
+    """SS/S/A 用（展開・印と根拠）。"""
+    cfg = config or load_expectation_config()
+    flow_lines, mark_lines = build_note_rationale_sections(
+        plan, win_df, exotic_df, sort_marks(plan.marks)
+    )
+    return _format_note_race_sections(plan, flow_lines, mark_lines, cfg)
+
+
 def format_x_race(
     plan: RaceBetPlan,
     config: Optional[ExpectationTierConfig] = None,
 ) -> str:
-    """A〜C 用（印中心・短文）。"""
+    """B〜C 用（印中心・短文）。"""
     cfg = config or load_expectation_config()
     header = f"【{cfg.venue_label} {plan.race_no}R】　期待値{plan.expectation_tier}"
     body = format_marks_lines(plan.marks)

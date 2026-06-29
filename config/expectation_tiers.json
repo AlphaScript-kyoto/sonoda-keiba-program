@@ -1,12 +1,12 @@
 {
   "tier_min_scores": {
-    "SS": 92,
+    "SS": 94,
     "S": 75,
     "A": 58,
     "B": 42,
     "C": 0
   },
-  "note_tiers": ["SS", "S"],
-  "x_tiers": ["A", "B", "C"],
+  "note_tiers": ["SS", "S", "A"],
+  "x_tiers": ["B", "C"],
   "venue_label": "園田"
 }
