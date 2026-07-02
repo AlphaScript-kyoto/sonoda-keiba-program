@@ -30,12 +30,21 @@ def main() -> None:
         "※このメッセージは動作確認用です。"
     )
 
-    print(f"Sending test to {len(ids)} user(s)...")
-    resp = send_line_team_messages(message)
-    if resp.status_code != 200:
-        print("Failed.")
+    print(f"Sending test to {len(ids)} user(s) via push...")
+    results = send_line_team_messages(message)
+    failed = [r for r in results if r.status_code != 200]
+    if failed:
+        for rec in failed:
+            print(
+                f"Failed: ...{rec.user_id_suffix} "
+                f"status={rec.status_code} req={rec.request_id}"
+            )
         sys.exit(1)
-    print("OK")
+    for rec in results:
+        print(
+            f"OK: ...{rec.user_id_suffix} "
+            f"status={rec.status_code} req={rec.request_id} chunk={rec.chunk}"
+        )
 
 
 if __name__ == "__main__":

@@ -156,9 +156,13 @@ def send_team_broadcast(
         except ValueError:
             pass
 
-    from tools.line_bot import send_line_predict_messages
+    from tools.line_bot import format_line_delivery_log, send_line_predict_messages
 
-    send_line_predict_messages(message)
+    deliveries = send_line_predict_messages(message)
+    if date_yyyymmdd:
+        log_fn = log_run_today if log_channel == "run_today" else log_watch
+        for rec in deliveries:
+            log_fn(date_yyyymmdd, format_line_delivery_log(rec))
     state[key] = datetime.now().isoformat(timespec="seconds")
     _save_alert_state(state)
     if date_yyyymmdd and log_channel == "run_today":

@@ -151,7 +151,11 @@ def send_nightly_roi_reports(date_yyyymmdd: str, gate_state) -> None:
         build_upset_high_daily_roi_report,
         format_upset_high_daily_roi_message,
     )
-    from tools.line_bot import send_line_message, send_line_predict_messages  # noqa: E402
+    from tools.line_bot import (  # noqa: E402
+        format_line_delivery_log,
+        send_line_message,
+        send_line_predict_messages,
+    )
 
     try:
         roi_report = build_t10_daily_roi_report(date_yyyymmdd, fetch_payback=True)
@@ -166,7 +170,9 @@ def send_nightly_roi_reports(date_yyyymmdd: str, gate_state) -> None:
     log_run_today(date_yyyymmdd, f"T-10 ROI report: {len(roi_report.races)} race(s)")
     print("\n=== T-10 ROI (S+) ===")
     print(roi_msg)
-    send_line_predict_messages(roi_msg)
+    roi_deliveries = send_line_predict_messages(roi_msg)
+    for rec in roi_deliveries:
+        log_run_today(date_yyyymmdd, format_line_delivery_log(rec))
     log_run_today(date_yyyymmdd, "T-10 ROI LINE sent (team + admin)")
 
     try:

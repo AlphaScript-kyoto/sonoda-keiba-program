@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -13,8 +14,27 @@ ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 
 LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push"
-LINE_MULTICAST_URL = "https://api.line.me/v2/bot/message/multicast"
 LINE_TEXT_LIMIT = 4800
+
+
+@dataclass(frozen=True)
+class LineSendResult:
+    """One LINE push attempt (single chunk to one user)."""
+
+    channel: str
+    user_id_suffix: str
+    status_code: int
+    request_id: str
+    chunk: str
+
+
+def format_line_delivery_log(result: LineSendResult) -> str:
+    """Single-line delivery record for automation logs."""
+    return (
+        f"LINE push {result.channel} ...{result.user_id_suffix} "
+        f"status={result.status_code} req={result.request_id or '?'} "
+        f"chunk={result.chunk}"
+    )
 
 
 def chunk_text_for_line(text: str, max_len: int = LINE_TEXT_LIMIT) -> list[str]:
@@ -65,6 +85,14 @@ def _line_credentials() -> tuple[str, str]:
     return token, user_id
 
 
+def _user_id_suffix(user_id: str) -> str:
+    return user_id[-4:] if len(user_id) >= 4 else user_id
+
+
+def _line_request_id(response: requests.Response) -> str:
+    return str(response.headers.get("x-line-request-id", "")).strip()
+
+
 def team_user_ids() -> list[str]:
     """Team predict recipients from LINE_TEAM_USER_IDS (comma-separated)."""
     raw = os.getenv("LINE_TEAM_USER_IDS", "").strip()
@@ -73,69 +101,8 @@ def team_user_ids() -> list[str]:
     return [uid.strip() for uid in raw.split(",") if uid.strip()]
 
 
-def send_line_message(message: str) -> requests.Response:
-    """指定ユーザーにテキストをプッシュ送信。"""
-    return send_line_messages(message)
-
-
-def send_line_messages(message: str) -> requests.Response:
-    """Long text is split into multiple pushes. Returns the last response."""
-    parts = chunk_text_for_line(message)
-    response: Optional[requests.Response] = None
-    for idx, part in enumerate(parts):
-        if not part:
-            continue
-        prefix = f"({idx + 1}/{len(parts)})\n" if len(parts) > 1 else ""
-        response = _post_line_text(prefix + part)
-    if response is None:
-        response = _post_line_text("(empty)")
-    return response
-
-
-def send_line_team_messages(message: str) -> requests.Response:
-    """Multicast predict copy to LINE_TEAM_USER_IDS. Returns the last response."""
-    user_ids = team_user_ids()
-    if not user_ids:
-        raise RuntimeError(
-            "LINE_TEAM_USER_IDS が未設定です。"
-            "scripts/line_export_team_ids.py で ID を確認してください。"
-        )
-    parts = chunk_text_for_line(message)
-    response: Optional[requests.Response] = None
-    for idx, part in enumerate(parts):
-        if not part:
-            continue
-        prefix = f"({idx + 1}/{len(parts)})\n" if len(parts) > 1 else ""
-        response = _post_line_multicast(user_ids, prefix + part)
-    if response is None:
-        response = _post_line_multicast(user_ids, "(empty)")
-    return response
-
-
-def send_line_predict_messages(message: str) -> None:
-    """T-10 predict: team multicast + admin push (LINE_USER_ID)."""
-    admin_id = os.getenv("LINE_USER_ID", "").strip()
-    team_ids = team_user_ids()
-
-    if team_ids:
-        resp = send_line_team_messages(message)
-        if resp.status_code != 200:
-            raise RuntimeError(f"team multicast failed: {resp.status_code} {resp.text}")
-
-    if admin_id and admin_id not in team_ids:
-        resp = send_line_messages(message)
-        if resp.status_code != 200:
-            raise RuntimeError(f"admin push failed: {resp.status_code} {resp.text}")
-    elif not team_ids:
-        if not admin_id:
-            raise RuntimeError("LINE_TEAM_USER_IDS と LINE_USER_ID が未設定です。")
-        resp = send_line_messages(message)
-        if resp.status_code != 200:
-            raise RuntimeError(f"admin push failed: {resp.status_code} {resp.text}")
-
-
-def _post_line_text(text: str) -> requests.Response:
-    token, user_id = _line_credentials()
+def _post_line_push(user_id: str, text: str) -> requests.Response:
+    token = _channel_token()
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -144,28 +111,135 @@ def _post_line_text(text: str) -> requests.Response:
         "to": user_id,
         "messages": [{"type": "text", "text": text}],
     }
-    response = requests.post(LINE_PUSH_URL, headers=headers, json=payload, timeout=30)
-    print(response.status_code)
-    print(response.text)
-    return response
-
-
-def _post_line_multicast(user_ids: list[str], text: str) -> requests.Response:
-    token = _channel_token()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "to": user_ids,
-        "messages": [{"type": "text", "text": text}],
-    }
     response = requests.post(
-        LINE_MULTICAST_URL, headers=headers, json=payload, timeout=30
+        LINE_PUSH_URL, headers=headers, json=payload, timeout=30
     )
     print(response.status_code)
     print(response.text)
     return response
+
+
+def _push_text_to_user(
+    user_id: str,
+    message: str,
+    *,
+    channel: str,
+) -> list[LineSendResult]:
+    parts = chunk_text_for_line(message)
+    results: list[LineSendResult] = []
+    sent_parts = [part for part in parts if part]
+    total = len(sent_parts) if sent_parts else 1
+
+    if not sent_parts:
+        response = _post_line_push(user_id, "(empty)")
+        results.append(
+            LineSendResult(
+                channel=channel,
+                user_id_suffix=_user_id_suffix(user_id),
+                status_code=response.status_code,
+                request_id=_line_request_id(response),
+                chunk="1/1",
+            )
+        )
+        return results
+
+    for idx, part in enumerate(sent_parts):
+        prefix = f"({idx + 1}/{total})\n" if total > 1 else ""
+        response = _post_line_push(user_id, prefix + part)
+        results.append(
+            LineSendResult(
+                channel=channel,
+                user_id_suffix=_user_id_suffix(user_id),
+                status_code=response.status_code,
+                request_id=_line_request_id(response),
+                chunk=f"{idx + 1}/{total}",
+            )
+        )
+    return results
+
+
+def _last_response(results: list[LineSendResult]) -> requests.Response:
+    """Backward-compatible shim: fabricate a minimal Response-like object."""
+    if not results:
+        response = requests.Response()
+        response.status_code = 500
+        return response
+    response = requests.Response()
+    response.status_code = results[-1].status_code
+    return response
+
+
+def send_line_message(message: str) -> requests.Response:
+    """管理者 (LINE_USER_ID) にテキストをプッシュ送信。"""
+    return send_line_messages(message)
+
+
+def send_line_messages(message: str) -> requests.Response:
+    """管理者向け push。長文は分割。Returns the last response."""
+    _, user_id = _line_credentials()
+    results = _push_text_to_user(user_id, message, channel="admin_push")
+    return _last_response(results)
+
+
+def send_line_team_messages(message: str) -> list[LineSendResult]:
+    """LINE_TEAM_USER_IDS の各ユーザーへ push（1人ずつ）。"""
+    user_ids = team_user_ids()
+    if not user_ids:
+        raise RuntimeError(
+            "LINE_TEAM_USER_IDS が未設定です。"
+            "scripts/line_export_team_ids.py で ID を確認してください。"
+        )
+
+    results: list[LineSendResult] = []
+    for user_id in user_ids:
+        results.extend(
+            _push_text_to_user(user_id, message, channel="team_push")
+        )
+    return results
+
+
+def send_line_predict_messages(message: str) -> list[LineSendResult]:
+    """T-10 predict: team push (per member) + admin push when not in team."""
+    admin_id = os.getenv("LINE_USER_ID", "").strip()
+    team_ids = team_user_ids()
+    results: list[LineSendResult] = []
+
+    if team_ids:
+        results.extend(send_line_team_messages(message))
+        for rec in results:
+            if rec.status_code != 200:
+                raise RuntimeError(
+                    "team push failed: "
+                    f"...{rec.user_id_suffix} "
+                    f"status={rec.status_code} req={rec.request_id}"
+                )
+
+    if admin_id and admin_id not in team_ids:
+        chunk_results = _push_text_to_user(
+            admin_id, message, channel="admin_push"
+        )
+        for rec in chunk_results:
+            if rec.status_code != 200:
+                raise RuntimeError(
+                    "admin push failed: "
+                    f"status={rec.status_code} req={rec.request_id}"
+                )
+        results.extend(chunk_results)
+    elif not team_ids:
+        if not admin_id:
+            raise RuntimeError("LINE_TEAM_USER_IDS と LINE_USER_ID が未設定です。")
+        chunk_results = _push_text_to_user(
+            admin_id, message, channel="admin_push"
+        )
+        for rec in chunk_results:
+            if rec.status_code != 200:
+                raise RuntimeError(
+                    "admin push failed: "
+                    f"status={rec.status_code} req={rec.request_id}"
+                )
+        results.extend(chunk_results)
+
+    return results
 
 
 if __name__ == "__main__":

@@ -179,7 +179,12 @@ def send_line_notifications(
     date_yyyymmdd: str,
     jobs: Sequence[CaptureJob],
 ) -> List[str]:
-    from tools.line_bot import send_line_message, send_line_predict_messages, team_user_ids
+    from tools.line_bot import (
+        format_line_delivery_log,
+        send_line_message,
+        send_line_predict_messages,
+        team_user_ids,
+    )
     import os
 
     from src.predictor.backtest import BET_UNIT
@@ -208,7 +213,9 @@ def send_line_notifications(
     for job in jobs:
         try:
             plan, text = build_race_line_messages(date_yyyymmdd, job.race_no)
-            send_line_predict_messages(text)
+            deliveries = send_line_predict_messages(text)
+            for rec in deliveries:
+                log_watch(date_yyyymmdd, format_line_delivery_log(rec))
             upset_text = build_upset_high_admin_line_message(
                 date_yyyymmdd, job.race_no, plan
             )
