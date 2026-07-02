@@ -39,7 +39,7 @@ def build_history_message(
     master = load_master()
     parts = [
         "【園田 T-10回収率 過去実績まとめ】",
-        "期待値S+ / 単2倍+ / 複1.5倍+ / 三連5点",
+        "期待値S+ / 三連複フォーメーション5点",
         "",
     ]
     grand_inv = grand_ret = grand_pts = grand_races = 0
@@ -54,9 +54,7 @@ def build_history_message(
         parts.append("")
         grand_inv += report.total_investment
         grand_ret += report.total_return
-        grand_pts += sum(
-            r.win_points + r.place_points + r.sanren_points for r in report.races
-        )
+        grand_pts += sum(r.sanren_points for r in report.races)
         grand_races += len(report.races)
 
     roi = (grand_ret / grand_inv * 100.0) if grand_inv else 0.0

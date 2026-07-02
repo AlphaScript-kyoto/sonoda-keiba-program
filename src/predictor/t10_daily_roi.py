@@ -12,12 +12,9 @@ from src.predictor.backtest import (
     BET_UNIT,
     _finish_order,
     _load_paybacks_for_races,
-    _place_payout_yen,
-    _win_payout_yen,
 )
 from src.predictor.bets import (
     DEFAULT_STRATEGY,
-    _parse_odds_value,
     _race_class,
     assign_marks,
     build_race_bet_plan,
@@ -26,29 +23,44 @@ from src.predictor.bets import (
     format_sanrenpuku_formation_umaban_line,
 )
 from src.predictor.expectation import TIER_RANK
-from src.predictor.formation_247 import parse_place_odds_low
 from src.predictor.score import load_master, score_entries
 from src.predictor.scoring_config import load_split_scoring_configs
 from src.predictor.snapshot_compare import list_snapshot_race_ids
 from src.scraper.payback import RacePayback
 from src.scraper.race_snapshots import LABEL_T_MINUS_10, snapshot_path
 
-WIN_MIN_ODDS = 2.0
-PLACE_MIN_ODDS = 1.5
-
-
-def _place_odds_low_from_snap(snap: dict, umaban: str) -> float:
-    place_map = (snap.get("odds") or {}).get("place") or {}
-    return parse_place_odds_low(str(place_map.get(str(umaban), "")))
-
-
-def _should_buy_place(snap: dict, umaban: str) -> bool:
-    low = _place_odds_low_from_snap(snap, umaban)
-    return pd.notna(low) and low >= PLACE_MIN_ODDS
+S_PLUS_BUY_LABEL = "\u4e09\u9023\u8907\u30d5\u30a9\u30fc\u30e1\u30fc\u30b7\u30e7\u30f35\u70b9"
 
 
 def is_tier_s_plus(tier: str) -> bool:
     return TIER_RANK.get(tier, 99) <= TIER_RANK["S"]
+
+
+def format_s_plus_buy_line_message(
+    plan,
+    top5: pd.DataFrame,
+    *,
+    header_line: Optional[str] = None,
+) -> Optional[str]:
+    """Team LINE buy text for S+ races (sanren formation only)."""
+    if plan is None or not is_tier_s_plus(plan.expectation_tier):
+        return None
+    formation = build_sanrenpuku_formation_firm(top5)
+    if formation is None or formation.points <= 0:
+        return None
+
+    buy_line = format_sanrenpuku_formation_umaban_line(formation)
+    header = header_line or f"{int(plan.race_no)}R"
+    return "\n".join(
+        [
+            header,
+            "",
+            f"\u3010\u8cb7\u3044\u76ee\u3011\u671f\u5f85\u5024{plan.expectation_tier}",
+            S_PLUS_BUY_LABEL,
+            buy_line,
+            f"\uff08\u8a08{formation.points}\u70b9\u30fb{formation.points * BET_UNIT}\u5186\uff09",
+        ]
+    )
 
 
 @dataclass
@@ -59,18 +71,10 @@ class T10RaceRoi:
     race_class: str
     expectation_tier: str
     expectation_score: int
-    win_points: int = 0
-    place_points: int = 0
     sanren_points: int = 0
     investment: int = 0
     return_yen: int = 0
-    win_hit: bool = False
-    place_hits: int = 0
     sanren_hit: bool = False
-    skipped_win_low_odds: bool = False
-    win_umaban: str = ""
-    win_bought: bool = False
-    place_umabans: List[str] = field(default_factory=list)
     sanren_display: str = ""
 
     @property
@@ -100,15 +104,7 @@ class T10DailyRoiReport:
 
     @property
     def total_points(self) -> int:
-        return sum(r.win_points + r.place_points + r.sanren_points for r in self.races)
-
-    @property
-    def win_hit_count(self) -> int:
-        return sum(1 for r in self.races if r.win_hit)
-
-    @property
-    def place_hit_count(self) -> int:
-        return sum(r.place_hits for r in self.races)
+        return sum(r.sanren_points for r in self.races)
 
     @property
     def sanren_hit_count(self) -> int:
@@ -116,9 +112,7 @@ class T10DailyRoiReport:
 
     @property
     def race_hit_count(self) -> int:
-        return sum(
-            1 for r in self.races if r.win_hit or r.place_hits > 0 or r.sanren_hit
-        )
+        return self.sanren_hit_count
 
 
 def _load_snapshot_entries(date_yyyymmdd: str, race_id: str) -> Optional[dict]:
@@ -169,7 +163,7 @@ def compute_t10_race_roi(
     if scored is None:
         return None
 
-    plan, top5, final_race, snap = scored
+    plan, top5, final_race, _snap = scored
     if not is_tier_s_plus(plan.expectation_tier):
         return None
 
@@ -177,10 +171,9 @@ def compute_t10_race_roi(
     if len(finish) < 3 or top5.empty:
         return None
 
-    axis = top5.iloc[0]
-    axis_u = str(axis["umaban"])
-    axis_odds = _parse_odds_value(axis.get("odds", float("nan")))
-    second_u = str(top5.iloc[1]["umaban"]) if len(top5) > 1 else ""
+    formation = build_sanrenpuku_formation_firm(top5)
+    if formation is None or formation.points <= 0:
+        return None
 
     row = T10RaceRoi(
         race_id=race_id,
@@ -189,45 +182,17 @@ def compute_t10_race_roi(
         race_class=_race_class(final_race),
         expectation_tier=plan.expectation_tier,
         expectation_score=int(plan.expectation_score or 0),
+        sanren_points=formation.points,
+        sanren_display=(
+            f"{format_sanrenpuku_formation_umaban_line(formation)}"
+            f"(\u8a08{formation.points}\u70b9)"
+        ),
+        investment=formation.points * BET_UNIT,
     )
-
-    investment = 0
-    returns = 0
-
-    if pd.notna(axis_odds) and axis_odds >= WIN_MIN_ODDS:
-        row.win_points = 1
-        row.win_bought = True
-        row.win_umaban = axis_u
-        investment += BET_UNIT
-        if axis_u == finish[0]:
-            row.win_hit = True
-            returns += _win_payout_yen(axis_u, payback, str(axis.get("odds", "")))
-    else:
-        row.skipped_win_low_odds = True
-
-    for u in (axis_u, second_u):
-        if not u or not _should_buy_place(snap, u):
-            continue
-        row.place_umabans.append(u)
-        row.place_points += 1
-        investment += BET_UNIT
-        if u in finish[:3]:
-            row.place_hits += 1
-            returns += _place_payout_yen(u, payback)
-
-    formation = build_sanrenpuku_formation_firm(top5)
-    if formation and formation.points > 0:
-        row.sanren_points = formation.points
-        sanren_line = format_sanrenpuku_formation_umaban_line(formation)
-        row.sanren_display = f"{sanren_line}(\u8a08{formation.points}\u70b9)"
-        investment += formation.points * BET_UNIT
-        if check_sanrenpuku_formation_firm_hit(formation, finish):
-            row.sanren_hit = True
-            if payback:
-                returns += payback.fuku3_yen
-
-    row.investment = investment
-    row.return_yen = returns
+    if check_sanrenpuku_formation_firm_hit(formation, finish):
+        row.sanren_hit = True
+        if payback:
+            row.return_yen = payback.fuku3_yen
     return row
 
 
@@ -277,24 +242,10 @@ def _format_t10_race_block(r: T10RaceRoi) -> List[str]:
     cls = f" {r.race_class}" if r.race_class else ""
     name = r.race_name[:16] if r.race_name else ""
     lines = [f"{r.race_no}R {name}{cls} \u671f\u5f85\u5024{r.expectation_tier}"]
-
-    if r.win_bought:
-        lines.append(f"\u5358\u52dd\u3000{r.win_umaban}")
-    elif r.skipped_win_low_odds:
-        lines.append("\u5358\u52dd\u3000\u898b\u9001\u308a")
-    else:
-        lines.append("\u5358\u52dd\u3000\u2015")
-
-    if r.place_umabans:
-        lines.append(f"\u8907\u52dd\u3000{','.join(r.place_umabans)}")
-    else:
-        lines.append("\u8907\u52dd\u3000\u2015")
-
     if r.sanren_display:
         lines.append(f"\u4e09\u9023\u8907\u3000{r.sanren_display}")
     else:
         lines.append("\u4e09\u9023\u8907\u3000\u2015")
-
     lines.append(
         f"\u6295{r.investment}\u5186\u3000\u6255{r.return_yen}\u5186\u3000"
         f"\u56de\u53ce{r.roi_pct:.0f}%"
@@ -319,8 +270,7 @@ def _format_t10_daily_summary(report: T10DailyRoiReport) -> List[str]:
         f"回収率 {report.total_roi_pct:.0f}%",
         (
             f"的中 {report.race_hit_count}/{len(report.races)}R"
-            f"（単{report.win_hit_count} 複{report.place_hit_count}"
-            f" 三連{report.sanren_hit_count}）"
+            f"（三連複{report.sanren_hit_count}）"
         ),
     ]
 
@@ -335,8 +285,7 @@ def format_t10_daily_roi_message(report: T10DailyRoiReport) -> str:
         f"\u3010\u5712\u7530 {date_label} \u8cb7\u3044\u76ee\u306e\u6210\u7e3e\u3011",
         "\u203b\u30ec\u30fc\u30b910\u5206\u524d\u306b\u914d\u4fe1\u3057\u305f\u4e88\u60f3\u3069\u304a\u308a\u306b\u8cb7\u3063\u305f\u60f3\u5b9a",
         "\u5bfe\u8c61: \u671f\u5f85\u5024S\u4ee5\u4e0a\u306e\u30ec\u30fc\u30b9",
-        "\u8cb7\u3044\u65b9: \u25ce\u5358\u52dd(2\u500d\u4ee5\u4e0a) + \u25ce\u25cb\u8907\u52dd(1.5\u500d\u4ee5\u4e0a) + \u4e09\u9023\u8907"
-        "5\u70b9",
+        f"\u8cb7\u3044\u65b9: {S_PLUS_BUY_LABEL}",
         "",
     ]
 

@@ -9,11 +9,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Sequence
 
+import pandas as pd
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.predictor.automation_log import log_watch, send_alert, send_team_broadcast, write_heartbeat
+from src.predictor.bets import assign_marks
 from src.predictor.post_format import format_race_copy
 from src.predictor.predict_day import PredictDayResult, run_predict_day_safe
 from src.predictor.race_schedule import normalize_post_time, race_post_datetime
@@ -122,12 +125,17 @@ def build_line_predict_header(plan) -> str:
     return f"{rno}R"
 
 
+def _exotic_frame_for_race(result: PredictDayResult, race_no: int) -> pd.DataFrame:
+    df = result.exotic_df if result.exotic_df is not None else result.win_df
+    return df[df["race_no"].astype(int) == int(race_no)].copy()
+
+
 def build_race_line_messages(
     date_yyyymmdd: str,
     race_no: int,
     *,
     result: Optional[PredictDayResult] = None,
-) -> tuple[Optional[object], str]:
+) -> tuple[Optional[object], str, Optional[str]]:
     if result is None:
         result = run_predict_day_safe(
             date_yyyymmdd,
@@ -137,18 +145,22 @@ def build_race_line_messages(
         return None, (
             f"{int(race_no)}R\n"
             f"\u4e88\u60f3\u30c7\u30fc\u30bf\u306e\u6e96\u5099\u304c\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002"
-        )
+        ), None
 
     plan = _plan_for_race(result, race_no)
     if plan is None:
         return None, (
             f"{int(race_no)}R\n"
             f"\u4e88\u60f3\u5bfe\u8c61\u304c\u3042\u308a\u307e\u305b\u3093\u3067\u3057\u305f\u3002"
-        )
+        ), None
 
     header = build_line_predict_header(plan)
     body = format_race_copy(plan, result.win_df, result.exotic_df)
-    return plan, f"{header}\n\n{body}"
+    from src.predictor.t10_daily_roi import format_s_plus_buy_line_message
+
+    top5 = assign_marks(_exotic_frame_for_race(result, race_no))
+    buy_text = format_s_plus_buy_line_message(plan, top5, header_line=header)
+    return plan, f"{header}\n\n{body}", buy_text
 
 
 def due_line_notify_jobs(
@@ -212,10 +224,18 @@ def send_line_notifications(
     sent: List[str] = []
     for job in jobs:
         try:
-            plan, text = build_race_line_messages(date_yyyymmdd, job.race_no)
+            plan, text, buy_text = build_race_line_messages(date_yyyymmdd, job.race_no)
             deliveries = send_line_predict_messages(text)
             for rec in deliveries:
                 log_watch(date_yyyymmdd, format_line_delivery_log(rec))
+            if buy_text:
+                buy_deliveries = send_line_predict_messages(buy_text)
+                for rec in buy_deliveries:
+                    log_watch(date_yyyymmdd, format_line_delivery_log(rec))
+                log_watch(
+                    date_yyyymmdd,
+                    f"LINE S+ buy sent R{job.race_no} {job.race_id}",
+                )
             upset_text = build_upset_high_admin_line_message(
                 date_yyyymmdd, job.race_no, plan
             )

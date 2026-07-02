@@ -17,26 +17,18 @@ from src.predictor.backtest import (
     BET_UNIT,
     _finish_order,
     _load_paybacks_for_races,
-    _place_payout_yen,
-    _win_payout_yen,
 )
 from src.predictor.bets import (
     DEFAULT_STRATEGY,
-    _parse_odds_value,
     assign_marks,
     build_race_bet_plan,
     build_sanrenpuku_formation_firm,
     check_sanrenpuku_formation_firm_hit,
 )
-from src.predictor.formation_247 import parse_place_odds_low
 from src.predictor.score import load_master, predict_date
 from src.predictor.scoring_config import load_split_scoring_configs
 from src.predictor.snapshot_compare import list_snapshot_race_ids
-from src.predictor.t10_daily_roi import (
-    PLACE_MIN_ODDS,
-    WIN_MIN_ODDS,
-    _load_snapshot_entries,
-)
+from src.predictor.t10_daily_roi import S_PLUS_BUY_LABEL, _load_snapshot_entries
 from src.predictor.upset_high_bet_gate import (
     UpsetHighBetRecord,
     UpsetHighBetState,
@@ -89,14 +81,6 @@ class SegmentTotals:
         return (self.hits / self.races * 100.0) if self.races else 0.0
 
 
-def _place_odds_low_from_master(row) -> float:
-    if "place_odds" in row.index:
-        low = parse_place_odds_low(str(row.get("place_odds", "")))
-        if low == low:
-            return low
-    return float("nan")
-
-
 def _score_race_fast(
     date_yyyymmdd: str,
     race_id: str,
@@ -135,8 +119,7 @@ def compute_s_tier_race_roi(
 ) -> Optional[SRaceRoi]:
     if scored is None:
         return None
-    plan, top5, final_race, snap = scored
-    used_t10_odds = snap is not None
+    plan, top5, final_race, _snap = scored
 
     if plan.expectation_tier != "S":
         return None
@@ -145,59 +128,22 @@ def compute_s_tier_race_roi(
     if len(finish) < 3 or top5.empty:
         return None
 
-    axis = top5.iloc[0]
-    axis_u = str(axis["umaban"])
-    second_u = str(top5.iloc[1]["umaban"]) if len(top5) > 1 else ""
-
-    if used_t10_odds:
-        axis_odds = _parse_odds_value(axis.get("odds", float("nan")))
-    else:
-        axis_row = final_race.loc[final_race["umaban"].astype(str) == axis_u]
-        axis_odds = _parse_odds_value(
-            axis_row["odds"].iloc[0] if not axis_row.empty else float("nan")
-        )
-
     row = SRaceRoi(date=date_yyyymmdd, race_no=int(final_race["race_no"].iloc[0]))
-    investment = 0
-    returns = 0
-
-    if pd.notna(axis_odds) and axis_odds >= WIN_MIN_ODDS:
-        investment += BET_UNIT
-        if axis_u == finish[0]:
-            row.win_hit = True
-            odds_src = str(axis.get("odds", "")) if used_t10_odds else str(axis_odds)
-            returns += _win_payout_yen(axis_u, payback, odds_src)
-
-    for u in (axis_u, second_u):
-        if not u:
-            continue
-        low = float("nan")
-        if used_t10_odds and snap:
-            place_map = (snap.get("odds") or {}).get("place") or {}
-            low = parse_place_odds_low(str(place_map.get(str(u), "")))
-        else:
-            u_row = final_race.loc[final_race["umaban"].astype(str) == u]
-            if not u_row.empty:
-                low = _place_odds_low_from_master(u_row.iloc[0])
-        if pd.isna(low) or low < PLACE_MIN_ODDS:
-            continue
-        investment += BET_UNIT
-        if u in finish[:3]:
-            row.place_hits += 1
-            returns += _place_payout_yen(u, payback)
-
     formation = build_sanrenpuku_formation_firm(top5)
-    if formation and formation.points > 0:
-        investment += formation.points * BET_UNIT
-        if check_sanrenpuku_formation_firm_hit(formation, finish):
-            row.sanren_hit = True
-            if payback:
-                returns += payback.fuku3_yen
+    if not formation or formation.points <= 0:
+        return None
+
+    investment = formation.points * BET_UNIT
+    returns = 0
+    if check_sanrenpuku_formation_firm_hit(formation, finish):
+        row.sanren_hit = True
+        if payback:
+            returns = payback.fuku3_yen
 
     row.investment = investment
     row.return_yen = returns
-    row.hit = bool(row.win_hit or row.place_hits > 0 or row.sanren_hit)
-    return row if investment > 0 else None
+    row.hit = bool(row.sanren_hit)
+    return row
 
 
 def compute_upset_high_race_roi(
@@ -326,8 +272,7 @@ def format_s_message(year_month: str, totals: SegmentTotals) -> str:
     return "\n".join(
         [
             f"\u3010\u5712\u7530 {y}\u5e74{m}\u6708 \u671f\u5f85\u5024S \u6210\u7e3e\u3011",
-            "\u203b\u73fe\u884c\u30ed\u30b8\u30c3\u30af\u30fbT-10\u8cb7\u3044\u76ee"
-            "\uff08\u53582\u500d+/\u89075\u500d+/\u4e09\u9023\u89075\u70b9\uff09",
+            f"\u203b\u73fe\u884c\u30ed\u30b8\u30c3\u30af\u30fb{S_PLUS_BUY_LABEL}",
             (
                 f"\u5bfe\u8c61 {totals.races}\u30ec\u30fc\u30b9"
                 f"\uff08T-10\u30aa\u30c3\u30ba\u3042\u308a {totals.t10_odds_days}"
