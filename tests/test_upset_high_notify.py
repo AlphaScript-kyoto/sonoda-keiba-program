@@ -49,8 +49,8 @@ def test_upset_high_admin_line_message():
     plan.race_name = "C3二"
     msg = build_upset_high_admin_line_message("20260618", 5, plan)
     assert msg is not None
-    assert "荒Highレースです" in msg
-    assert "三連複フォーメーション" in msg
+    assert "【P6】荒×High" in msg
+    assert "三連複フォーメーション5点" in msg
     assert "1-2,3,-2,3,4,5" in msg
     assert "です" in msg
 

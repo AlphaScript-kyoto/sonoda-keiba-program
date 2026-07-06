@@ -182,10 +182,11 @@ def send_nightly_roi_reports(date_yyyymmdd: str, gate_state) -> None:
             fetch_payback=False,
         )
         uh_msg = format_upset_high_daily_roi_message(uh_report)
-        log_run_today(date_yyyymmdd, f"upset-high ROI report: {len(uh_report.bets)} bet(s)")
-        print("\n=== Upset x High ROI ===")
+        log_run_today(date_yyyymmdd, f"P6 ROI report: {len(uh_report.bets)} bet(s)")
+        print("\n=== P6 nightly ROI ===")
         print(uh_msg)
         send_line_message(uh_msg)
+        log_run_today(date_yyyymmdd, "P6 nightly ROI LINE sent (admin)")
     except Exception as exc:
         log_run_today(date_yyyymmdd, f"upset-high ROI FAILED: {exc}")
         send_alert(

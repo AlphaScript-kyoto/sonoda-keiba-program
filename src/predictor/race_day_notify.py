@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Sequence
 
@@ -31,10 +31,15 @@ from src.scraper.race_snapshots import (
     next_wake_datetime,
     snapshots_dir,
     trigger_datetime,
+    update_schedule_race_meta,
 )
 from src.scraper.sonoda_history import find_next_sonoda_race_date_after
 
 LINE_NOTIFY_OFFSET = 10
+S_PLUS_PAYBACK_START_MINUTES = 5
+S_PLUS_PAYBACK_POLL_MINUTES = 5
+S_PLUS_PAYBACK_TIMEOUT_MINUTES = 180
+P6_PAYBACK_STATE_FILE = "p6_payback_state.json"
 
 
 def notified_path(date_yyyymmdd: str) -> Path:
@@ -63,6 +68,268 @@ def mark_race_notified(date_yyyymmdd: str, race_id: str) -> None:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
 
+def s_plus_payback_state_path(date_yyyymmdd: str) -> Path:
+    return snapshots_dir(date_yyyymmdd) / "s_plus_payback_state.json"
+
+
+def load_s_plus_payback_state(date_yyyymmdd: str) -> dict:
+    path = s_plus_payback_state_path(date_yyyymmdd)
+    if not path.exists():
+        return {
+            "date": date_yyyymmdd,
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+            "races": [],
+        }
+    with path.open(encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_s_plus_payback_state(date_yyyymmdd: str, state: dict) -> None:
+    state["date"] = date_yyyymmdd
+    state["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    path = s_plus_payback_state_path(date_yyyymmdd)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+def register_s_plus_payback_target(
+    date_yyyymmdd: str,
+    *,
+    race_id: str,
+    race_no: int,
+    race_name: str,
+    post_time: str,
+) -> None:
+    state = load_s_plus_payback_state(date_yyyymmdd)
+    races = state.get("races", [])
+    rid = str(race_id)
+    for rec in races:
+        if str(rec.get("race_id", "")) == rid:
+            rec["race_no"] = int(race_no)
+            rec["race_name"] = str(race_name or "")
+            rec["post_time"] = str(post_time or "")
+            save_s_plus_payback_state(date_yyyymmdd, state)
+            return
+
+    races.append(
+        {
+            "race_id": rid,
+            "race_no": int(race_no),
+            "race_name": str(race_name or ""),
+            "post_time": str(post_time or ""),
+            "status": "pending",
+            "notified_at": datetime.now().isoformat(timespec="seconds"),
+            "last_checked_at": "",
+            "settled_at": "",
+        }
+    )
+    state["races"] = sorted(
+        races, key=lambda x: int(x.get("race_no", 999))
+    )
+    save_s_plus_payback_state(date_yyyymmdd, state)
+
+
+def sync_payback_post_times_from_schedule(
+    date_yyyymmdd: str,
+    schedule: dict,
+) -> None:
+    post_by_id = {
+        str(r.get("race_id", "")): normalize_post_time(r.get("post_time", ""))
+        for r in schedule.get("races", [])
+        if r.get("race_id")
+    }
+    state = load_s_plus_payback_state(date_yyyymmdd)
+    changed = False
+    for rec in state.get("races", []):
+        if str(rec.get("status", "pending")) != "pending":
+            continue
+        rid = str(rec.get("race_id", ""))
+        new_post = post_by_id.get(rid, "")
+        if new_post and str(rec.get("post_time", "")) != new_post:
+            rec["post_time"] = new_post
+            changed = True
+    if changed:
+        save_s_plus_payback_state(date_yyyymmdd, state)
+    from src.predictor.race_payback_notify import sync_payback_post_times
+
+    sync_payback_post_times(date_yyyymmdd, schedule, P6_PAYBACK_STATE_FILE)
+
+
+def register_p6_payback_target(
+    date_yyyymmdd: str,
+    *,
+    race_id: str,
+    race_no: int,
+    race_name: str,
+    post_time: str,
+) -> None:
+    from src.predictor.race_payback_notify import register_payback_target
+
+    register_payback_target(
+        date_yyyymmdd,
+        P6_PAYBACK_STATE_FILE,
+        race_id=race_id,
+        race_no=race_no,
+        race_name=race_name,
+        post_time=post_time,
+    )
+
+
+def due_p6_payback_jobs(
+    date_yyyymmdd: str,
+    *,
+    now: Optional[datetime] = None,
+    start_after_minutes: int = S_PLUS_PAYBACK_START_MINUTES,
+    poll_minutes: int = S_PLUS_PAYBACK_POLL_MINUTES,
+) -> List[dict]:
+    from src.predictor.race_payback_notify import due_payback_jobs, load_payback_state
+
+    return due_payback_jobs(
+        date_yyyymmdd,
+        P6_PAYBACK_STATE_FILE,
+        now=now,
+        state=load_payback_state(date_yyyymmdd, P6_PAYBACK_STATE_FILE),
+        start_after_minutes=start_after_minutes,
+        poll_minutes=poll_minutes,
+    )
+
+
+def next_p6_payback_wake(
+    date_yyyymmdd: str,
+    *,
+    now: Optional[datetime] = None,
+    start_after_minutes: int = S_PLUS_PAYBACK_START_MINUTES,
+    poll_minutes: int = S_PLUS_PAYBACK_POLL_MINUTES,
+) -> Optional[datetime]:
+    from src.predictor.race_payback_notify import next_payback_wake
+
+    return next_payback_wake(
+        date_yyyymmdd,
+        P6_PAYBACK_STATE_FILE,
+        now=now,
+        start_after_minutes=start_after_minutes,
+        poll_minutes=poll_minutes,
+    )
+
+
+def _next_poll_after(
+    date_yyyymmdd: str,
+    post_time: str,
+    *,
+    start_after_minutes: int = S_PLUS_PAYBACK_START_MINUTES,
+    poll_minutes: int = S_PLUS_PAYBACK_POLL_MINUTES,
+) -> Optional[datetime]:
+    post_dt = race_post_datetime(date_yyyymmdd, post_time)
+    if post_dt is None:
+        return None
+    return post_dt + timedelta(minutes=int(start_after_minutes + poll_minutes))
+
+
+def _next_due_poll_time(
+    date_yyyymmdd: str,
+    post_time: str,
+    *,
+    now: datetime,
+    start_after_minutes: int = S_PLUS_PAYBACK_START_MINUTES,
+    poll_minutes: int = S_PLUS_PAYBACK_POLL_MINUTES,
+) -> Optional[datetime]:
+    post_dt = race_post_datetime(date_yyyymmdd, post_time)
+    if post_dt is None:
+        return None
+    first_due = post_dt + timedelta(minutes=int(start_after_minutes))
+    if now <= first_due:
+        return first_due
+    elapsed = now - first_due
+    slots = int(elapsed.total_seconds() // (poll_minutes * 60))
+    due = first_due + timedelta(minutes=slots * poll_minutes)
+    if due < now:
+        due += timedelta(minutes=poll_minutes)
+    return due
+
+
+def due_s_plus_payback_jobs(
+    date_yyyymmdd: str,
+    *,
+    now: Optional[datetime] = None,
+    state: Optional[dict] = None,
+    start_after_minutes: int = S_PLUS_PAYBACK_START_MINUTES,
+    poll_minutes: int = S_PLUS_PAYBACK_POLL_MINUTES,
+) -> List[dict]:
+    current = now or datetime.now()
+    state = state if state is not None else load_s_plus_payback_state(date_yyyymmdd)
+    due: List[dict] = []
+    for rec in state.get("races", []):
+        if rec.get("status") == "done":
+            continue
+        post_time = str(rec.get("post_time", ""))
+        post_dt = race_post_datetime(date_yyyymmdd, post_time)
+        if post_dt is None:
+            continue
+        first_due = post_dt + timedelta(minutes=int(start_after_minutes))
+        if current < first_due:
+            continue
+
+        last_checked_at = str(rec.get("last_checked_at", "") or "")
+        if last_checked_at:
+            try:
+                last_dt = datetime.fromisoformat(last_checked_at)
+                if current < last_dt + timedelta(minutes=int(poll_minutes)):
+                    continue
+            except ValueError:
+                pass
+        due.append(rec)
+    return sorted(due, key=lambda x: int(x.get("race_no", 999)))
+
+
+def next_s_plus_payback_wake(
+    date_yyyymmdd: str,
+    *,
+    now: Optional[datetime] = None,
+    start_after_minutes: int = S_PLUS_PAYBACK_START_MINUTES,
+    poll_minutes: int = S_PLUS_PAYBACK_POLL_MINUTES,
+) -> Optional[datetime]:
+    current = now or datetime.now()
+    state = load_s_plus_payback_state(date_yyyymmdd)
+    candidates: List[datetime] = []
+    for rec in state.get("races", []):
+        if rec.get("status") == "done":
+            continue
+        post_time = str(rec.get("post_time", ""))
+        next_due = _next_due_poll_time(
+            date_yyyymmdd,
+            post_time,
+            now=current,
+            start_after_minutes=start_after_minutes,
+            poll_minutes=poll_minutes,
+        )
+        if next_due is not None:
+            candidates.append(next_due)
+    return min(candidates) if candidates else None
+
+
+def build_s_plus_payback_message(
+    date_yyyymmdd: str,
+    *,
+    race_no: int,
+    race_name: str,
+    evaluation,
+) -> str:
+    race_title = f"{int(race_no)}R"
+    if race_name:
+        race_title = f"{race_title} {race_name}"
+    hit = " 的中" if evaluation.hit else ""
+    finish = "-".join(evaluation.finish)
+    return "\n".join(
+        [
+            f"{date_yyyymmdd} {race_title}",
+            f"【期待値S+ 三連複結果{hit}】",
+            f"結果 {finish}",
+            f"買い目 {evaluation.buy_line}",
+            f"払戻 {int(evaluation.return_yen):,}円",
+        ]
+    )
+
+
 def _plan_for_race(result: PredictDayResult, race_no: int):
     for plan in result.plans:
         if int(plan.race_no) == int(race_no):
@@ -76,8 +343,17 @@ def build_race_line_message(
     *,
     result: Optional[PredictDayResult] = None,
 ) -> str:
-    _, text = build_race_line_messages(date_yyyymmdd, race_no, result=result)
+    _, text, _ = build_race_line_messages(date_yyyymmdd, race_no, result=result)
     return text
+
+
+def _send_member_only_line(message: str) -> List:
+    """S+ buy / payback: LINE_TEAM_USER_IDS only (not admin)."""
+    from tools.line_bot import send_line_team_messages, team_user_ids
+
+    if not message.strip() or not team_user_ids():
+        return []
+    return send_line_team_messages(message)
 
 
 def build_upset_high_admin_line_message(
@@ -85,12 +361,13 @@ def build_upset_high_admin_line_message(
     race_no: int,
     plan,
 ) -> Optional[str]:
-    """Admin-only follow-up when exotic upset + high confidence sanren formation."""
+    """Admin-only P6 buy signal (upset x High, volatile, axis odds floor)."""
     from src.predictor.bets import format_sanrenpuku_formation_umaban_line
+    from src.predictor.upset_p6_rules import is_p6_eligible_plan
 
     if plan is None:
         return None
-    if plan.exotic_profile != "\u8352" or plan.exotic_confidence != "\u9ad8":
+    if not is_p6_eligible_plan(plan):
         return None
     formation = plan.sanrenpuku_formation
     if formation is None or formation.points <= 0:
@@ -103,9 +380,9 @@ def build_upset_high_admin_line_message(
         header = f"{header} {race_name}"
     return (
         f"{header}\n"
-        f"\u8352High\u30ec\u30fc\u30b9\u3067\u3059\n"
+        f"\u3010P6\u3011\u8352\u00d7High\n"
         f"\u8cb7\u3044\u76ee\u306f\n"
-        f"\u4e09\u9023\u8907\u30d5\u30a9\u30fc\u30e1\u30fc\u30b7\u30e7\u30f3\n"
+        f"\u4e09\u9023\u8907\u30d5\u30a9\u30fc\u30e1\u30fc\u30b7\u30e7\u30f35\u70b9\n"
         f"{buy_line}\n"
         f"\u3067\u3059"
     )
@@ -225,23 +502,60 @@ def send_line_notifications(
     for job in jobs:
         try:
             plan, text, buy_text = build_race_line_messages(date_yyyymmdd, job.race_no)
+            post_time = (
+                normalize_post_time(plan.post_time)
+                if plan is not None and plan.post_time
+                else normalize_post_time(job.post_time)
+            )
+            race_name = (
+                str(plan.race_name or "").strip()
+                if plan is not None
+                else str(job.race_name or "")
+            )
+            schedule_update = update_schedule_race_meta(
+                date_yyyymmdd,
+                job.race_id,
+                post_time=post_time,
+                race_name=race_name,
+            )
+            if schedule_update:
+                old_post, new_post = schedule_update
+                log_watch(
+                    date_yyyymmdd,
+                    f"schedule post_time R{job.race_no} {job.race_id} "
+                    f"{old_post} -> {new_post}",
+                )
             deliveries = send_line_predict_messages(text)
             for rec in deliveries:
                 log_watch(date_yyyymmdd, format_line_delivery_log(rec))
             if buy_text:
-                buy_deliveries = send_line_predict_messages(buy_text)
-                for rec in buy_deliveries:
-                    log_watch(date_yyyymmdd, format_line_delivery_log(rec))
-                log_watch(
-                    date_yyyymmdd,
-                    f"LINE S+ buy sent R{job.race_no} {job.race_id}",
-                )
+                buy_deliveries = _send_member_only_line(buy_text)
+                if not buy_deliveries:
+                    log_watch(
+                        date_yyyymmdd,
+                        f"WARN S+ buy skipped R{job.race_no} "
+                        "(LINE_TEAM_USER_IDS empty)",
+                    )
+                else:
+                    for rec in buy_deliveries:
+                        log_watch(date_yyyymmdd, format_line_delivery_log(rec))
+                    register_s_plus_payback_target(
+                        date_yyyymmdd,
+                        race_id=job.race_id,
+                        race_no=job.race_no,
+                        race_name=race_name,
+                        post_time=post_time,
+                    )
+                    log_watch(
+                        date_yyyymmdd,
+                        f"LINE S+ buy sent R{job.race_no} {job.race_id}",
+                    )
             upset_text = build_upset_high_admin_line_message(
                 date_yyyymmdd, job.race_no, plan
             )
             if upset_text:
                 ok, reason = should_send_upset_high_buy(
-                    gate_state, date_yyyymmdd, master=master
+                    gate_state, date_yyyymmdd, master=master, plan=plan
                 )
                 if ok:
                     resp = send_line_message(upset_text)
@@ -255,9 +569,16 @@ def send_line_notifications(
                     record_signaled_bet(
                         gate_state, date_yyyymmdd, job.race_no, invest
                     )
+                    register_p6_payback_target(
+                        date_yyyymmdd,
+                        race_id=job.race_id,
+                        race_no=job.race_no,
+                        race_name=race_name,
+                        post_time=post_time,
+                    )
                     log_watch(
                         date_yyyymmdd,
-                        f"LINE upset-high buy sent R{job.race_no} {job.race_id}",
+                        f"LINE P6 buy sent R{job.race_no} {job.race_id}",
                     )
                 else:
                     if gate_state.pause_notified_date != date_yyyymmdd:
@@ -280,7 +601,7 @@ def send_line_notifications(
             sent.append(job.race_id)
             log_watch(
                 date_yyyymmdd,
-                f"LINE post sent R{job.race_no} {job.race_id} post={job.post_time}",
+                f"LINE post sent R{job.race_no} {job.race_id} post={post_time}",
             )
         except NetkeibaBlockedError:
             raise
@@ -316,6 +637,191 @@ def process_due_line_notifications(
         f"LINE notify: {len(jobs)} race(s) due (T-{notify_offset})",
     )
     return send_line_notifications(date_yyyymmdd, jobs)
+
+
+def process_due_s_plus_payback_notifications(
+    date_yyyymmdd: str,
+    *,
+    now: Optional[datetime] = None,
+) -> List[int]:
+    from src.predictor.score import load_master
+    from src.predictor.t10_daily_roi import evaluate_s_plus_payback_for_race
+    from src.scraper.payback import fetch_paybacks
+    from tools.line_bot import format_line_delivery_log
+
+    master = load_master()
+    state = load_s_plus_payback_state(date_yyyymmdd)
+    due = due_s_plus_payback_jobs(date_yyyymmdd, now=now, state=state)
+    if not due:
+        return []
+
+    current = now or datetime.now()
+    settled: List[int] = []
+    for rec in due:
+        rid = str(rec.get("race_id", ""))
+        rno = int(rec.get("race_no", 0))
+        race_name = str(rec.get("race_name", "") or "")
+        rec["last_checked_at"] = current.isoformat(timespec="seconds")
+        try:
+            pb_map = fetch_paybacks([rid], use_cache=True, stop_on_block=True)
+            pb = pb_map.get(rid)
+            if pb is None:
+                post_dt = race_post_datetime(date_yyyymmdd, str(rec.get("post_time", "")))
+                if (
+                    post_dt is not None
+                    and current >= post_dt + timedelta(minutes=S_PLUS_PAYBACK_TIMEOUT_MINUTES)
+                ):
+                    rec["status"] = "timeout"
+                    rec["settled_at"] = current.isoformat(timespec="seconds")
+                    log_watch(
+                        date_yyyymmdd,
+                        f"S+ payback timeout R{rno} {rid}",
+                    )
+                    continue
+                log_watch(
+                    date_yyyymmdd,
+                    f"S+ payback pending R{rno} {rid}",
+                )
+                continue
+            evaluation = evaluate_s_plus_payback_for_race(
+                date_yyyymmdd, rid, pb, master=master
+            )
+            if evaluation is None:
+                log_watch(
+                    date_yyyymmdd,
+                    f"S+ payback pending R{rno} {rid} (result not ready)",
+                )
+                continue
+            msg = build_s_plus_payback_message(
+                date_yyyymmdd,
+                race_no=rno,
+                race_name=race_name,
+                evaluation=evaluation,
+            )
+            deliveries = _send_member_only_line(msg)
+            if not deliveries:
+                log_watch(
+                    date_yyyymmdd,
+                    f"WARN S+ payback skipped R{rno} {rid} "
+                    "(LINE_TEAM_USER_IDS empty)",
+                )
+                continue
+            for out in deliveries:
+                log_watch(date_yyyymmdd, format_line_delivery_log(out))
+            rec["status"] = "done"
+            rec["settled_at"] = current.isoformat(timespec="seconds")
+            settled.append(rno)
+            log_watch(
+                date_yyyymmdd,
+                f"S+ payback sent R{rno} {rid} hit={evaluation.hit} "
+                f"ret={evaluation.return_yen}",
+            )
+        except NetkeibaBlockedError:
+            raise
+        except Exception as exc:
+            log_watch(
+                date_yyyymmdd,
+                f"WARN S+ payback poll failed R{rno} {rid}: {exc}",
+            )
+            send_alert(
+                f"R{rno} 払戻 LINE 送信失敗\n{exc}",
+                date_yyyymmdd=date_yyyymmdd,
+                alert_key=f"s_plus_payback_fail_{date_yyyymmdd}_{rid}",
+                cooldown_minutes=15,
+            )
+    state["races"] = state.get("races", [])
+    save_s_plus_payback_state(date_yyyymmdd, state)
+    return settled
+
+
+def process_due_p6_payback_notifications(
+    date_yyyymmdd: str,
+    *,
+    now: Optional[datetime] = None,
+) -> List[int]:
+    from src.predictor.p6_payback import build_p6_payback_message, evaluate_p6_payback_for_race
+    from src.predictor.race_payback_notify import load_payback_state, save_payback_state
+    from src.predictor.score import load_master
+    from src.scraper.payback import fetch_paybacks
+    from tools.line_bot import send_line_message
+
+    master = load_master()
+    state = load_payback_state(date_yyyymmdd, P6_PAYBACK_STATE_FILE)
+    due = due_p6_payback_jobs(date_yyyymmdd, now=now)
+    if not due:
+        return []
+
+    current = now or datetime.now()
+    settled: List[int] = []
+    for rec in due:
+        rid = str(rec.get("race_id", ""))
+        rno = int(rec.get("race_no", 0))
+        race_name = str(rec.get("race_name", "") or "")
+        rec["last_checked_at"] = current.isoformat(timespec="seconds")
+        try:
+            pb_map = fetch_paybacks([rid], use_cache=True, stop_on_block=True)
+            pb = pb_map.get(rid)
+            if pb is None:
+                post_dt = race_post_datetime(date_yyyymmdd, str(rec.get("post_time", "")))
+                if (
+                    post_dt is not None
+                    and current >= post_dt + timedelta(minutes=S_PLUS_PAYBACK_TIMEOUT_MINUTES)
+                ):
+                    rec["status"] = "timeout"
+                    rec["settled_at"] = current.isoformat(timespec="seconds")
+                    log_watch(
+                        date_yyyymmdd,
+                        f"P6 payback timeout R{rno} {rid}",
+                    )
+                    continue
+                log_watch(
+                    date_yyyymmdd,
+                    f"P6 payback pending R{rno} {rid}",
+                )
+                continue
+            evaluation = evaluate_p6_payback_for_race(
+                date_yyyymmdd, rid, pb, master=master
+            )
+            if evaluation is None:
+                log_watch(
+                    date_yyyymmdd,
+                    f"P6 payback pending R{rno} {rid} (result not ready)",
+                )
+                continue
+            msg = build_p6_payback_message(
+                race_no=rno,
+                race_name=race_name,
+                evaluation=evaluation,
+            )
+            resp = send_line_message(msg)
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"P6 payback push failed: {resp.status_code} {resp.text}"
+                )
+            rec["status"] = "done"
+            rec["settled_at"] = current.isoformat(timespec="seconds")
+            settled.append(rno)
+            log_watch(
+                date_yyyymmdd,
+                f"P6 payback sent R{rno} {rid} hit={evaluation.hit} "
+                f"ret={evaluation.return_yen}",
+            )
+        except NetkeibaBlockedError:
+            raise
+        except Exception as exc:
+            log_watch(
+                date_yyyymmdd,
+                f"WARN P6 payback poll failed R{rno} {rid}: {exc}",
+            )
+            send_alert(
+                f"R{rno} P6\u6255\u623b LINE\u9001\u4fe1\u5931\u6557\n{exc}",
+                date_yyyymmdd=date_yyyymmdd,
+                alert_key=f"p6_payback_fail_{date_yyyymmdd}_{rid}",
+                cooldown_minutes=15,
+            )
+    state["races"] = state.get("races", [])
+    save_payback_state(date_yyyymmdd, P6_PAYBACK_STATE_FILE, state)
+    return settled
 
 
 def process_due_upset_high_settlements(
@@ -409,6 +915,20 @@ def all_captures_done_for_watch(
         now=now,
     ):
         return False
+    if due_s_plus_payback_jobs(date_yyyymmdd, now=now):
+        return False
+    if due_p6_payback_jobs(date_yyyymmdd, now=now):
+        return False
+    state = load_s_plus_payback_state(date_yyyymmdd)
+    if any(
+        str(r.get("status", "pending")) not in {"done", "timeout"}
+        for r in state.get("races", [])
+    ):
+        return False
+    from src.predictor.race_payback_notify import has_pending_payback_jobs
+
+    if has_pending_payback_jobs(date_yyyymmdd, P6_PAYBACK_STATE_FILE):
+        return False
     return True
 
 
@@ -444,6 +964,7 @@ def build_watch_start_line_message(
         f"\u5168{len(races)}R",
         "",
         f"\u5404\u30ec\u30fc\u30b9{notify_offset}\u5206\u524d\u306b\u4e88\u60f3\u5370\u3092\u914d\u4fe1\u3057\u307e\u3059\u3002",
+        "\u671f\u5f85\u5024S+\u306f\u767a\u8d705\u5206\u5f8c\u304b\u3089\u6255\u623b\u901a\u77e5\u3092\u884c\u3044\u307e\u3059\u3002",
         "\u672c\u65e5\u3082\u5f35\u308a\u5207\u3063\u3066\u3044\u304d\u307e\u3057\u3087\u3046\uff01",
         "",
         "\u3010\u5404\u30ec\u30fc\u30b9\u51fa\u8d70\u6642\u9593\u3011",
@@ -574,6 +1095,7 @@ def watch_race_day(
                 include_exotic_odds=include_exotic_odds,
             )
             schedule = load_schedule(date_yyyymmdd) or schedule
+            sync_payback_post_times_from_schedule(date_yyyymmdd, schedule)
             process_due_upset_high_settlements(date_yyyymmdd, schedule)
             if line_notify:
                 process_due_line_notifications(
@@ -581,6 +1103,8 @@ def watch_race_day(
                     schedule,
                     notify_offset=notify_offset,
                 )
+                process_due_s_plus_payback_notifications(date_yyyymmdd)
+                process_due_p6_payback_notifications(date_yyyymmdd)
 
             if all_captures_done_for_watch(
                 date_yyyymmdd,
@@ -592,11 +1116,17 @@ def watch_race_day(
                 notify_watch_finished(date_yyyymmdd, schedule, line_notify=line_notify)
                 break
 
-            wake_at = next_wake_datetime(
+            snap_wake_at = next_wake_datetime(
                 date_yyyymmdd,
                 schedule,
                 offsets=_wake_offsets(offsets, line_notify, notify_offset),
             )
+            payback_wake_at = next_s_plus_payback_wake(date_yyyymmdd)
+            p6_wake_at = next_p6_payback_wake(date_yyyymmdd)
+            wake_candidates = [
+                w for w in (snap_wake_at, payback_wake_at, p6_wake_at) if w is not None
+            ]
+            wake_at = min(wake_candidates) if wake_candidates else None
             if wake_at is None:
                 notify_watch_finished(date_yyyymmdd, schedule, line_notify=line_notify)
                 break
@@ -655,6 +1185,7 @@ def run_once(
             include_exotic_odds=include_exotic_odds,
         )
         schedule = load_schedule(date_yyyymmdd) or schedule
+        sync_payback_post_times_from_schedule(date_yyyymmdd, schedule)
         process_due_upset_high_settlements(date_yyyymmdd, schedule)
         if line_notify:
             process_due_line_notifications(
@@ -662,6 +1193,8 @@ def run_once(
                 schedule,
                 notify_offset=notify_offset,
             )
+            process_due_s_plus_payback_notifications(date_yyyymmdd)
+            process_due_p6_payback_notifications(date_yyyymmdd)
         log_watch(date_yyyymmdd, "run_once finished")
         write_heartbeat(date_yyyymmdd, status="once_done")
     except NetkeibaBlockedError as exc:

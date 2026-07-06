@@ -10,6 +10,7 @@ from src.scraper.race_snapshots import (
     next_wake_datetime,
     parse_capture_offsets,
     trigger_datetime,
+    update_schedule_race_meta,
 )
 
 
@@ -80,6 +81,58 @@ def test_due_line_notify_jobs_t10(tmp_path, monkeypatch):
     due2 = due_line_notify_jobs("20260612", sched, notify_offset=10, now=now)
     assert len(due2) == 0
     assert "202650061201" in load_notified_race_ids("20260612")
+
+
+def test_update_schedule_race_meta(tmp_path, monkeypatch):
+    import src.scraper.race_snapshots as mod
+
+    monkeypatch.setattr(mod, "SNAPSHOTS_ROOT", tmp_path)
+    sched = _schedule()
+    mod.save_schedule(sched)
+
+    changed = mod.update_schedule_race_meta(
+        "20260612",
+        "202650061201",
+        post_time="12:10",
+    )
+    assert changed == ("12:00", "12:10")
+
+    updated = mod.load_schedule("20260612")
+    assert updated["races"][0]["post_time"] == "12:10"
+
+    unchanged = mod.update_schedule_race_meta(
+        "20260612",
+        "202650061201",
+        post_time="12:10",
+    )
+    assert unchanged is None
+
+
+def test_due_line_notify_uses_updated_post_time(tmp_path, monkeypatch):
+    import src.predictor.race_day_notify as notify_mod
+    import src.scraper.race_snapshots as mod
+
+    monkeypatch.setattr(mod, "SNAPSHOTS_ROOT", tmp_path)
+    monkeypatch.setattr(notify_mod, "snapshots_dir", mod.snapshots_dir)
+
+    from src.predictor.race_day_notify import due_line_notify_jobs
+
+    sched = _schedule()
+    mod.save_schedule(sched)
+    mod.update_schedule_race_meta(
+        "20260612",
+        "202650061201",
+        post_time="12:10",
+    )
+    sched = mod.load_schedule("20260612")
+
+    too_early = datetime(2026, 6, 12, 11, 59)
+    assert due_line_notify_jobs("20260612", sched, notify_offset=10, now=too_early) == []
+
+    on_time = datetime(2026, 6, 12, 12, 0)
+    due = due_line_notify_jobs("20260612", sched, notify_offset=10, now=on_time)
+    assert len(due) == 1
+    assert due[0].post_time == "12:10"
 
 
 def test_chunk_text_for_line():

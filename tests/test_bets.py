@@ -95,6 +95,8 @@ def test_sanrenpuku_formation_firm_points():
     assert check_sanrenpuku_formation_firm_hit(formation, ["1", "2", "4"])
     assert check_sanrenpuku_formation_firm_hit(formation, ["1", "3", "5"])
     assert not check_sanrenpuku_formation_firm_hit(formation, ["1", "4", "5"])
+    # 3着目が予想5頭外なら不的中（旧ロジックでは誤的中）
+    assert not check_sanrenpuku_formation_firm_hit(formation, ["1", "2", "6"])
 
 
 def test_sanrentan_formation_tickets():

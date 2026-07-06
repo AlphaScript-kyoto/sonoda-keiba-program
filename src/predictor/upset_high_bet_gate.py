@@ -174,7 +174,14 @@ def should_send_upset_high_buy(
     today_yyyymmdd: str,
     *,
     master: Optional[pd.DataFrame] = None,
+    plan=None,
 ) -> Tuple[bool, str]:
+    from src.predictor.upset_p6_rules import (
+        P6_DAILY_MAX_RACES,
+        is_p6_eligible_plan,
+        p6_daily_cap_reason,
+    )
+
     on_race_day_open(today_yyyymmdd, state, master=master)
     if state.paused:
         return False, state.pause_reason or "\u4f11\u6b62\u4e2d"
@@ -182,6 +189,11 @@ def should_send_upset_high_buy(
     if reason:
         enter_pause(state, reason, today_yyyymmdd, master)
         return False, reason
+    if plan is not None and not is_p6_eligible_plan(plan):
+        return False, "P6\u6761\u4ef6\u5916"
+    cap = p6_daily_cap_reason(state, today_yyyymmdd, max_races=P6_DAILY_MAX_RACES)
+    if cap:
+        return False, cap
     return True, ""
 
 

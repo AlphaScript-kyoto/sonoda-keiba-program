@@ -63,6 +63,69 @@ def save_schedule(schedule: dict) -> Path:
     return path
 
 
+def race_meta_from_entries(entries: List[dict]) -> tuple[str, str]:
+    if not entries:
+        return "", ""
+    row = entries[0]
+    return (
+        normalize_post_time(row.get("post_time", "")),
+        str(row.get("race_name", "") or "").strip(),
+    )
+
+
+def update_schedule_race_meta(
+    date_yyyymmdd: str,
+    race_id: str,
+    *,
+    post_time: str = "",
+    race_name: str = "",
+) -> Optional[tuple[str, str]]:
+    """schedule.json の発走時刻・レース名を netkeiba 最新に合わせる。
+
+    Returns (old_post_time, new_post_time) when post_time changed, else None.
+    """
+    schedule = load_schedule(date_yyyymmdd)
+    if not schedule:
+        return None
+    rid = str(race_id)
+    post_time = normalize_post_time(post_time)
+    race_name = str(race_name or "").strip()
+    changed_post: Optional[tuple[str, str]] = None
+    meta_changed = False
+    for race in schedule.get("races", []):
+        if str(race.get("race_id", "")) != rid:
+            continue
+        old_post = normalize_post_time(race.get("post_time", ""))
+        if post_time and old_post != post_time:
+            race["post_time"] = post_time
+            changed_post = (old_post, post_time)
+            meta_changed = True
+        if race_name and race.get("race_name") != race_name:
+            race["race_name"] = race_name
+            meta_changed = True
+        break
+    if meta_changed:
+        schedule["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        save_schedule(schedule)
+    return changed_post
+
+
+def sync_schedule_from_entries(
+    date_yyyymmdd: str,
+    race_id: str,
+    entries: List[dict],
+) -> Optional[tuple[str, str]]:
+    post_time, race_name = race_meta_from_entries(entries)
+    if not post_time and not race_name:
+        return None
+    return update_schedule_race_meta(
+        date_yyyymmdd,
+        race_id,
+        post_time=post_time,
+        race_name=race_name,
+    )
+
+
 def fetch_and_save_schedule(date_yyyymmdd: str) -> dict:
     race_ids = list_race_ids_for_shutuba(date_yyyymmdd)
     races: List[dict] = []
@@ -209,10 +272,15 @@ def capture_race_snapshot(
     if is_snapshot_captured(date_yyyymmdd, race_id, label):
         path = snapshot_path(date_yyyymmdd, race_id, label)
         with path.open(encoding="utf-8") as f:
-            return json.load(f)
+            payload = json.load(f)
+        sync_schedule_from_entries(
+            date_yyyymmdd, race_id, payload.get("entries", [])
+        )
+        return payload
 
     html = fetch_shutuba_html(race_id)
     entries = parse_shutuba(html, race_id)
+    sync_schedule_from_entries(date_yyyymmdd, race_id, entries)
     odds_snap = fetch_race_odds_snapshot(race_id, include_exotic=include_exotic_odds)
 
     payload: Dict[str, Any] = {
@@ -253,6 +321,8 @@ def capture_due(
     include_exotic_odds: bool = False,
     now: Optional[datetime] = None,
 ) -> List[str]:
+    from src.predictor.automation_log import log_watch
+
     schedule = load_schedule(date_yyyymmdd)
     if schedule is None or not schedule.get("races"):
         schedule = fetch_and_save_schedule(date_yyyymmdd)
@@ -268,13 +338,31 @@ def capture_due(
                 minutes_before=job.minutes_before,
                 include_exotic_odds=include_exotic_odds,
             )
+            schedule = load_schedule(date_yyyymmdd) or schedule
+            race_row = next(
+                (
+                    r
+                    for r in schedule.get("races", [])
+                    if str(r.get("race_id", "")) == job.race_id
+                ),
+                None,
+            )
+            post_time = str(
+                (race_row or {}).get("post_time", job.post_time) or job.post_time
+            )
             key = f"{job.race_id}:{job.label}"
             captured.append(key)
             print(
                 f"  captured T-{job.minutes_before} {job.race_id} "
-                f"R{job.race_no} post={job.post_time}",
+                f"R{job.race_no} post={post_time}",
                 flush=True,
             )
+            if race_row and post_time != job.post_time:
+                log_watch(
+                    date_yyyymmdd,
+                    f"schedule post_time R{job.race_no} {job.race_id} "
+                    f"{job.post_time} -> {post_time}",
+                )
         except NetkeibaBlockedError:
             raise
         except Exception as exc:

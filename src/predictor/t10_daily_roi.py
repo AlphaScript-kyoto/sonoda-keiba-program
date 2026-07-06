@@ -63,6 +63,46 @@ def format_s_plus_buy_line_message(
     )
 
 
+@dataclass(frozen=True)
+class SPlusPaybackEvaluation:
+    hit: bool
+    return_yen: int
+    finish: tuple[str, str, str]
+    buy_line: str
+
+
+def evaluate_s_plus_payback_for_race(
+    date_yyyymmdd: str,
+    race_id: str,
+    payback: Optional[RacePayback],
+    master: Optional[pd.DataFrame] = None,
+) -> Optional[SPlusPaybackEvaluation]:
+    """T-10買い目（三連複5点フォーメーション）が的中したかを判定する。"""
+    master_df = master if master is not None else load_master()
+    win_cfg, ex_cfg = load_split_scoring_configs()
+    scored = _score_t10_race(date_yyyymmdd, race_id, master_df, win_cfg=win_cfg, ex_cfg=ex_cfg)
+    if scored is None:
+        return None
+
+    _plan, top5, final_race, _snap = scored
+    finish = _finish_order(final_race)
+    if len(finish) < 3 or top5.empty:
+        return None
+
+    formation = build_sanrenpuku_formation_firm(top5)
+    if formation is None or formation.points <= 0:
+        return None
+
+    hit = check_sanrenpuku_formation_firm_hit(formation, finish)
+    return_yen = payback.fuku3_yen if hit and payback else 0
+    return SPlusPaybackEvaluation(
+        hit=hit,
+        return_yen=return_yen,
+        finish=(finish[0], finish[1], finish[2]),
+        buy_line=format_sanrenpuku_formation_umaban_line(formation),
+    )
+
+
 @dataclass
 class T10RaceRoi:
     race_id: str

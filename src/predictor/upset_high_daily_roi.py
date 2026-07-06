@@ -75,13 +75,9 @@ def _bet_totals(bets: List[UpsetHighDailyBet]) -> tuple[int, int, float]:
 
 
 def _is_t10_upset_high_plan(plan) -> bool:
-    formation = plan.sanrenpuku_formation
-    return (
-        plan.exotic_profile == UPSET
-        and plan.exotic_confidence == "\u9ad8"
-        and formation is not None
-        and formation.points > 0
-    )
+    from src.predictor.upset_p6_rules import is_p6_eligible_plan
+
+    return is_p6_eligible_plan(plan)
 
 
 def _settle_t10_formation_bet(
@@ -266,13 +262,13 @@ def _format_bet_lines(bets: List[UpsetHighDailyBet], *, empty_label: str) -> Lis
     return lines
 
 
-def format_upset_high_daily_roi_message(report: UpsetHighDailyRoiReport) -> str:
+def format_p6_daily_roi_message(report: UpsetHighDailyRoiReport) -> str:
+    """Admin nightly summary: actual P6 bets only."""
     lines: List[str] = [
-        f"\u3010\u5712\u7530 \u8352\u00d7High\u5b9f\u7e3e {report.date}\u3011",
-        f"\u4e09\u9023\u8907\u30d5\u30a9\u30fc\u30e1\u30fc\u30b7\u30e7\u30f3 {BET_UNIT}\u5186\u00d75\u70b9",
-        "\u203b\u5224\u5b9a\u30fb\u914d\u4fe1\u3068\u540c\u3058 T-10\u30aa\u30c3\u30ba\u57fa\u6e96",
+        f"\u3010\u5712\u7530 P6\u5b9f\u7e3e {report.date}\u3011",
+        f"\u4e09\u9023\u8907\u30d5\u30a9\u30fc\u30e1\u30fc\u30b7\u30e7\u30f35\u70b9\uff08{BET_UNIT}\u5186\u00d75\u70b9\uff09",
+        "\u203b\u5b9f\u969b\u306b\u914d\u4fe1\u3057\u305f\u8cb7\u3044\u76ee\uff08\u4f11\u6b62\u30b2\u30fc\u30c8\u53cd\u6620\uff09",
         "",
-        "\u25bc \u5b9f\u969b\u306e\u8cb7\u3044\u76ee\uff08\u4f11\u6b62\u30b2\u30fc\u30c8\u53cd\u6620\uff09",
     ]
 
     if not report.bets:
@@ -290,28 +286,12 @@ def format_upset_high_daily_roi_message(report: UpsetHighDailyRoiReport) -> str:
             )
         )
 
-    lines.extend(
-        [
-            "",
-            "\u25bc \u4f11\u6b62\u306a\u3057\u3067\u5168\u8cfc\u5165\uff08T-10\u8a72\u5f53\uff09",
-        ]
-    )
-    lines.extend(
-        _format_bet_lines(
-            report.continuous_bets,
-            empty_label="\u8a72\u5f53\u30ec\u30fc\u30b9\u306a\u3057",
-        )
-    )
-
-    if report.rolling_roi_pct is not None:
-        lines.append(
-            f"\u76f4\u8fd110R ROI\uff08\u5b9f\u969b\uff09: {report.rolling_roi_pct:.1f}%  "
-            f"\u9023\u6557: {report.consecutive_misses}"
-        )
-    else:
-        lines.append(f"\u9023\u6557: {report.consecutive_misses}")
-
     if report.paused:
         lines.append("\u203b\u4f11\u6b62\u4e2d")
 
     return "\n".join(lines)
+
+
+def format_upset_high_daily_roi_message(report: UpsetHighDailyRoiReport) -> str:
+    """Backward-compatible alias for P6 nightly admin report."""
+    return format_p6_daily_roi_message(report)

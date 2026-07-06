@@ -100,6 +100,10 @@ class BetStrategyConfig:
     use_firm_volatile_box: bool = False
     firm_volatile_sanren_box_core: int = 4
     use_formation_247_on_upset: bool = False
+    # P6: upset x High = sanren form 5pt only (no wide on upset)
+    p6_upset_sanren_only: bool = True
+    p6_min_axis_odds: float = 2.0
+    p6_daily_max_races: int = 2
 
 
 DEFAULT_STRATEGY = BetStrategyConfig()
@@ -183,6 +187,8 @@ class RaceBetPlan:
     race_profile: str = "堅"  # exotic_profile のエイリアス（後方互換）
     exotic_confidence: str = "通常"
     fav_odds: float = 0.0
+    axis_odds: float = 0.0
+    is_volatile: bool = False
     sanrenpuku: Optional[SanrenpukuNagashi] = None
     sanrenpuku_formation: Optional[SanrenpukuFormationFirm] = None
     sanrenpuku_box: Optional[SanrenpukuBox] = None
@@ -684,6 +690,12 @@ def build_race_bet_plan(
     exotic_profile = detect_exotic_profile(signals_ex, st)
     exotic_th = st.exotic_upset if exotic_profile == "荒" else st.exotic_firm
     exotic_high = matches_threshold(ex_p1, ex_gap, exotic_th)
+    volatile = is_volatile_race(signals_ex, st)
+
+    top_odds = _parse_odds_value(
+        scored_race.sort_values("rank_pred").iloc[0].get("odds", float("nan"))
+    )
+    axis_odds = float(top_odds) if pd.notna(top_odds) and top_odds > 0 else 0.0
 
     plan = RaceBetPlan(
         race_id=race_id,
@@ -695,13 +707,14 @@ def build_race_bet_plan(
         exotic_profile=exotic_profile,
         race_profile=exotic_profile,
         fav_odds=signals_win.fav_odds,
+        axis_odds=axis_odds,
+        is_volatile=volatile,
         win_prob_top=p1,
         prob_gap=gap,
         marks=marks,
         post_time=post_time,
     )
 
-    top_odds = _parse_odds_value(scored_race.sort_values("rank_pred").iloc[0].get("odds", float("nan")))
     if win_high and should_skip_win_bet(win_profile, top_odds, st):
         if win_profile == "荒" and st.skip_win_on_upset:
             plan.confidence = "通常（荒れ・単勝見送り）"
@@ -712,7 +725,6 @@ def build_race_bet_plan(
         return _finalize_plan(plan)
 
     if exotic_profile == "堅":
-        volatile = is_volatile_race(signals_ex, st)
         if volatile and st.use_firm_volatile_box:
             plan.sanrenpuku_box = build_sanrenpuku_box(
                 top5,
@@ -741,7 +753,8 @@ def build_race_bet_plan(
                     use_247 = True
         if not use_247:
             plan.sanrenpuku_formation = build_sanrenpuku_formation_firm(top5)
-        plan.wide = build_wide_formation_upset(top5)
+        if not st.p6_upset_sanren_only:
+            plan.wide = build_wide_formation_upset(top5)
 
     return _finalize_plan(plan)
 
@@ -796,19 +809,26 @@ def check_sanrenpuku_box_hit(box: SanrenpukuBox, finish_order: List[str]) -> boo
     return set(finish_order[:3]).issubset(set(box.umaban))
 
 
+def sanrenpuku_formation_firm_ticket_sets(
+    formation: SanrenpukuFormationFirm,
+) -> frozenset[frozenset[str]]:
+    """購入する三連複5点の組み合わせ集合（着順不問）。"""
+    axis = formation.axis_umaban
+    key_u = set(formation.key_partner_umaban)
+    tickets: set[frozenset[str]] = set()
+    for a, b in combinations(formation.partner_umaban, 2):
+        if a in key_u or b in key_u:
+            tickets.add(frozenset({axis, a, b}))
+    return frozenset(tickets)
+
+
 def check_sanrenpuku_formation_firm_hit(
     formation: SanrenpukuFormationFirm, finish_order: List[str]
 ) -> bool:
-    """三連複5点フォーメーションが的中したか。"""
+    """三連複5点フォーメーションが的中したか（購入5通りのいずれかと一致）。"""
     if len(finish_order) < 3:
         return False
-    top3 = set(finish_order[:3])
-    if formation.axis_umaban not in top3:
-        return False
-    others = top3 - {formation.axis_umaban}
-    if len(others) != 2:
-        return False
-    return bool(others & set(formation.key_partner_umaban))
+    return frozenset(finish_order[:3]) in sanrenpuku_formation_firm_ticket_sets(formation)
 
 
 def check_sanrenpuku_hit(
