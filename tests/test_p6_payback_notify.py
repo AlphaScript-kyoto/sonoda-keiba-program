@@ -117,3 +117,67 @@ def test_p6_payback_sent_admin_only(tmp_path, monkeypatch):
     assert len(send_calls) == 1
     assert "\u6255\u3044\u623b\u3057" in send_calls[0]
     assert "\u8cb7\u3044\u76ee" not in send_calls[0]
+
+
+def test_p6_payback_not_resent_after_done(tmp_path, monkeypatch):
+    """送信成功後は status=done が保存され、再ポーリングで再送しない。"""
+    date = "20260703"
+    state_path = tmp_path / "p6_payback_state.json"
+    filename = "p6_payback_state.json"
+
+    monkeypatch.setattr(mod, "P6_PAYBACK_STATE_FILE", filename)
+    import src.predictor.race_payback_notify as rpn
+
+    monkeypatch.setattr(rpn, "_path", lambda _d, _f: state_path)
+
+    mod.register_p6_payback_target(
+        date,
+        race_id="202650070101",
+        race_no=1,
+        race_name="test",
+        post_time="10:00",
+    )
+
+    evaluation = P6PaybackEvaluation(
+        hit=False,
+        return_yen=0,
+        investment=500,
+        finish=("1", "2", "3"),
+        race_class="C3",
+    )
+    send_calls: list[str] = []
+
+    class FakeResp:
+        status_code = 200
+        text = ""
+
+    monkeypatch.setattr(
+        "src.predictor.p6_payback.evaluate_p6_payback_for_race",
+        lambda *_a, **_k: evaluation,
+    )
+    monkeypatch.setattr(
+        "src.scraper.payback.fetch_paybacks",
+        lambda *_a, **_k: {"202650070101": object()},
+    )
+    monkeypatch.setattr("src.predictor.score.load_master", lambda: None)
+    monkeypatch.setattr(
+        "tools.line_bot.send_line_message",
+        lambda msg: send_calls.append(msg) or FakeResp(),
+    )
+
+    first = mod.process_due_p6_payback_notifications(
+        date, now=datetime(2026, 7, 3, 10, 5, 0)
+    )
+    assert first == [1]
+    assert len(send_calls) == 1
+
+    # state が done で保存されていること
+    saved = rpn.load_payback_state(date, filename)
+    assert saved["races"][0]["status"] == "done"
+
+    # 5分後に再ポーリングしても再送しない
+    second = mod.process_due_p6_payback_notifications(
+        date, now=datetime(2026, 7, 3, 10, 15, 0)
+    )
+    assert second == []
+    assert len(send_calls) == 1

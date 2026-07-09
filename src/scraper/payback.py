@@ -180,6 +180,23 @@ def parse_race_payback(html: str, race_id: str) -> Optional[RacePayback]:
     )
 
 
+def finish_top3_from_payback(
+    payback: Optional["RacePayback"],
+) -> Optional[Tuple[str, str, str]]:
+    """払戻データから上位3頭の馬番を返す（三連単の着順優先、無ければ三連複）。
+
+    開催中は結果が master 未反映のため、的中判定の着順は払戻ページから直接取る。
+    三連単 `tan3_umaban` は 1-2-3 着の順。無効なら三連複 `fuku3_umaban`（順不同）。
+    """
+    if payback is None:
+        return None
+    for combo in (payback.tan3_umaban, payback.fuku3_umaban):
+        nums = [str(x) for x in combo if str(x).strip()]
+        if len(nums) >= 3:
+            return (nums[0], nums[1], nums[2])
+    return None
+
+
 def load_payback_cache(path: Optional[Path] = None) -> Dict[str, dict]:
     path = path or PAYBACK_CACHE_PATH
     if not path.exists():

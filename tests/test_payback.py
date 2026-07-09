@@ -6,9 +6,40 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.scraper.payback import parse_race_payback
+from src.scraper.payback import (
+    RacePayback,
+    finish_top3_from_payback,
+    parse_race_payback,
+)
 
 FIXTURE = ROOT / "tests" / "fixtures" / "result_202650052201.html"
+
+
+def _make_payback(*, tan3=("", "", ""), fuku3=("", "", "")) -> RacePayback:
+    return RacePayback(
+        race_id="x",
+        tansho={},
+        fukusho={},
+        fuku3_umaban=fuku3,
+        fuku3_yen=0,
+        tan3_umaban=tan3,
+        tan3_yen=0,
+    )
+
+
+def test_finish_top3_prefers_tan3():
+    pb = _make_payback(tan3=("9", "3", "7"), fuku3=("3", "7", "9"))
+    assert finish_top3_from_payback(pb) == ("9", "3", "7")
+
+
+def test_finish_top3_falls_back_to_fuku3():
+    pb = _make_payback(tan3=("", "", ""), fuku3=("3", "7", "9"))
+    assert finish_top3_from_payback(pb) == ("3", "7", "9")
+
+
+def test_finish_top3_none_when_unavailable():
+    assert finish_top3_from_payback(None) is None
+    assert finish_top3_from_payback(_make_payback()) is None
 
 
 def test_parse_race_payback():

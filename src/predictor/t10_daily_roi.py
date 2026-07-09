@@ -26,7 +26,7 @@ from src.predictor.expectation import TIER_RANK
 from src.predictor.score import load_master, score_entries
 from src.predictor.scoring_config import load_split_scoring_configs
 from src.predictor.snapshot_compare import list_snapshot_race_ids
-from src.scraper.payback import RacePayback
+from src.scraper.payback import RacePayback, finish_top3_from_payback
 from src.scraper.race_snapshots import LABEL_T_MINUS_10, snapshot_path
 
 S_PLUS_BUY_LABEL = "\u4e09\u9023\u8907\u30d5\u30a9\u30fc\u30e1\u30fc\u30b7\u30e7\u30f35\u70b9"
@@ -80,14 +80,27 @@ def evaluate_s_plus_payback_for_race(
     """T-10買い目（三連複5点フォーメーション）が的中したかを判定する。"""
     master_df = master if master is not None else load_master()
     win_cfg, ex_cfg = load_split_scoring_configs()
-    scored = _score_t10_race(date_yyyymmdd, race_id, master_df, win_cfg=win_cfg, ex_cfg=ex_cfg)
+    scored = _score_t10_race(
+        date_yyyymmdd,
+        race_id,
+        master_df,
+        win_cfg=win_cfg,
+        ex_cfg=ex_cfg,
+        require_result=False,
+    )
     if scored is None:
         return None
 
     _plan, top5, final_race, _snap = scored
-    finish = _finish_order(final_race)
-    if len(finish) < 3 or top5.empty:
+    if top5.empty:
         return None
+
+    finish = _finish_order(final_race) if not final_race.empty else []
+    if len(finish) < 3:
+        pb_finish = finish_top3_from_payback(payback)
+        if pb_finish is None:
+            return None
+        finish = list(pb_finish)
 
     formation = build_sanrenpuku_formation_firm(top5)
     if formation is None or formation.points <= 0:
@@ -163,13 +176,22 @@ def _load_snapshot_entries(date_yyyymmdd: str, race_id: str) -> Optional[dict]:
         return json.load(f)
 
 
-def _score_t10_race(date_yyyymmdd: str, race_id: str, master: pd.DataFrame, *, win_cfg, ex_cfg):
+def _score_t10_race(
+    date_yyyymmdd: str,
+    race_id: str,
+    master: pd.DataFrame,
+    *,
+    win_cfg,
+    ex_cfg,
+    require_result: bool = True,
+):
     snap = _load_snapshot_entries(date_yyyymmdd, race_id)
     if snap is None:
         return None
 
     final_race = master[master["race_id"].astype(str) == race_id].copy()
-    if final_race.empty:
+    if require_result and final_race.empty:
+        # 開催中は結果が master 未反映。着順は呼び出し側で払戻から取得する。
         return None
 
     live_entries = pd.DataFrame(snap.get("entries", []))

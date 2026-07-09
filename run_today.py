@@ -50,19 +50,13 @@ def _is_sonoda_race_day(date_yyyymmdd: str) -> bool:
 
 
 def _handle_off_day(date_yyyymmdd: str) -> None:
+    from src.predictor.off_day_notify import send_off_day_admin_alert
+
     next_date = find_next_sonoda_race_date_after(date_yyyymmdd)
     msg = build_run_today_off_day_message(date_yyyymmdd, next_date)
     log_run_today(date_yyyymmdd, "no Sonoda races; nightly skipped")
     print(msg)
-    sent = send_alert(
-        msg,
-        date_yyyymmdd=date_yyyymmdd,
-        alert_key=f"run_today_off_{date_yyyymmdd}",
-        cooldown_minutes=60 * 12,
-        log_channel="run_today",
-    )
-    if not sent:
-        log_run_today(date_yyyymmdd, "off-day LINE skipped (cooldown)")
+    send_off_day_admin_alert(msg, date_yyyymmdd, next_date)
 
 
 def _has_snapshots(date_yyyymmdd: str) -> bool:

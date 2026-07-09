@@ -42,6 +42,20 @@ S_PLUS_PAYBACK_TIMEOUT_MINUTES = 180
 P6_PAYBACK_STATE_FILE = "p6_payback_state.json"
 
 
+def _send_discord_safe(date_yyyymmdd: str, message: str, *, category: str) -> None:
+    from tools.discord_bot import send_discord_message
+
+    if not str(message or "").strip():
+        return
+    try:
+        send_discord_message(message, category=category)
+    except Exception as exc:
+        log_watch(
+            date_yyyymmdd,
+            f"WARN Discord {category} send failed: {exc}",
+        )
+
+
 def notified_path(date_yyyymmdd: str) -> Path:
     return snapshots_dir(date_yyyymmdd) / "line_notified.json"
 
@@ -179,16 +193,24 @@ def due_p6_payback_jobs(
     date_yyyymmdd: str,
     *,
     now: Optional[datetime] = None,
+    state: Optional[dict] = None,
     start_after_minutes: int = S_PLUS_PAYBACK_START_MINUTES,
     poll_minutes: int = S_PLUS_PAYBACK_POLL_MINUTES,
 ) -> List[dict]:
     from src.predictor.race_payback_notify import due_payback_jobs, load_payback_state
 
+    # 呼び出し側から state を渡す場合は同一オブジェクトを共有し、
+    # status="done" 等の更新が保存対象の state に反映されるようにする。
+    state = (
+        state
+        if state is not None
+        else load_payback_state(date_yyyymmdd, P6_PAYBACK_STATE_FILE)
+    )
     return due_payback_jobs(
         date_yyyymmdd,
         P6_PAYBACK_STATE_FILE,
         now=now,
-        state=load_payback_state(date_yyyymmdd, P6_PAYBACK_STATE_FILE),
+        state=state,
         start_after_minutes=start_after_minutes,
         poll_minutes=poll_minutes,
     )
@@ -407,11 +429,19 @@ def _exotic_frame_for_race(result: PredictDayResult, race_no: int) -> pd.DataFra
     return df[df["race_no"].astype(int) == int(race_no)].copy()
 
 
+def netkeiba_marks_link_enabled() -> bool:
+    import os
+
+    # Default on for T-10 team LINE. Set NETKEIBA_MARKS_LINK_ENABLED=0 to disable.
+    return os.getenv("NETKEIBA_MARKS_LINK_ENABLED", "1").strip() != "0"
+
+
 def build_race_line_messages(
     date_yyyymmdd: str,
     race_no: int,
     *,
     result: Optional[PredictDayResult] = None,
+    include_netkeiba_marks_link: Optional[bool] = None,
 ) -> tuple[Optional[object], str, Optional[str]]:
     if result is None:
         result = run_predict_day_safe(
@@ -437,7 +467,17 @@ def build_race_line_messages(
 
     top5 = assign_marks(_exotic_frame_for_race(result, race_no))
     buy_text = format_s_plus_buy_line_message(plan, top5, header_line=header)
-    return plan, f"{header}\n\n{body}", buy_text
+    add_marks_link = (
+        include_netkeiba_marks_link
+        if include_netkeiba_marks_link is not None
+        else netkeiba_marks_link_enabled()
+    )
+    text = f"{header}\n\n{body}"
+    if add_marks_link:
+        from src.predictor.netkeiba_marks import format_netkeiba_marks_block
+
+        text += format_netkeiba_marks_block(plan)
+    return plan, text, buy_text
 
 
 def due_line_notify_jobs(
@@ -528,6 +568,7 @@ def send_line_notifications(
             deliveries = send_line_predict_messages(text)
             for rec in deliveries:
                 log_watch(date_yyyymmdd, format_line_delivery_log(rec))
+            _send_discord_safe(date_yyyymmdd, text, category="t10_predict")
             if buy_text:
                 buy_deliveries = _send_member_only_line(buy_text)
                 if not buy_deliveries:
@@ -539,6 +580,11 @@ def send_line_notifications(
                 else:
                     for rec in buy_deliveries:
                         log_watch(date_yyyymmdd, format_line_delivery_log(rec))
+                    _send_discord_safe(
+                        date_yyyymmdd,
+                        buy_text,
+                        category="s_plus_buy",
+                    )
                     register_s_plus_payback_target(
                         date_yyyymmdd,
                         race_id=job.race_id,
@@ -563,6 +609,11 @@ def send_line_notifications(
                         raise RuntimeError(
                             f"admin upset-high push failed: {resp.status_code} {resp.text}"
                         )
+                    _send_discord_safe(
+                        date_yyyymmdd,
+                        upset_text,
+                        category="p6_buy",
+                    )
                     invest = 0
                     if plan and plan.sanrenpuku_formation:
                         invest = plan.sanrenpuku_formation.points * BET_UNIT
@@ -591,6 +642,11 @@ def send_line_notifications(
                                 f"admin upset-high pause failed: "
                                 f"{resp.status_code} {resp.text}"
                             )
+                        _send_discord_safe(
+                            date_yyyymmdd,
+                            skip_msg,
+                            category="p6_pause",
+                        )
                         gate_state.pause_notified_date = date_yyyymmdd
                     log_watch(
                         date_yyyymmdd,
@@ -708,6 +764,11 @@ def process_due_s_plus_payback_notifications(
                 continue
             for out in deliveries:
                 log_watch(date_yyyymmdd, format_line_delivery_log(out))
+            _send_discord_safe(
+                date_yyyymmdd,
+                msg,
+                category="s_plus_payback",
+            )
             rec["status"] = "done"
             rec["settled_at"] = current.isoformat(timespec="seconds")
             settled.append(rno)
@@ -747,7 +808,7 @@ def process_due_p6_payback_notifications(
 
     master = load_master()
     state = load_payback_state(date_yyyymmdd, P6_PAYBACK_STATE_FILE)
-    due = due_p6_payback_jobs(date_yyyymmdd, now=now)
+    due = due_p6_payback_jobs(date_yyyymmdd, now=now, state=state)
     if not due:
         return []
 
@@ -798,6 +859,11 @@ def process_due_p6_payback_notifications(
                 raise RuntimeError(
                     f"P6 payback push failed: {resp.status_code} {resp.text}"
                 )
+            _send_discord_safe(
+                date_yyyymmdd,
+                msg,
+                category="p6_payback",
+            )
             rec["status"] = "done"
             rec["settled_at"] = current.isoformat(timespec="seconds")
             settled.append(rno)
@@ -1004,24 +1070,19 @@ def build_no_race_line_message(
 
 
 def notify_no_race_day(date_yyyymmdd: str, *, line_notify: bool) -> None:
-    log_watch(date_yyyymmdd, "no Sonoda races; sending off-day notice")
+    log_watch(date_yyyymmdd, "no Sonoda races; off-day notice check")
     write_heartbeat(date_yyyymmdd, status="no_races")
     if not line_notify:
         return
     next_date = find_next_sonoda_race_date_after(date_yyyymmdd)
     msg = build_no_race_line_message(date_yyyymmdd, next_date)
-    sent = send_team_broadcast(
-        msg,
-        date_yyyymmdd=date_yyyymmdd,
-        alert_key=f"no_race_{date_yyyymmdd}",
-        cooldown_minutes=60 * 12,
-    )
-    if not sent:
-        log_watch(date_yyyymmdd, "off-day LINE skipped (cooldown)")
-    elif next_date:
-        log_watch(date_yyyymmdd, f"off-day LINE sent (next race {next_date})")
-    else:
-        log_watch(date_yyyymmdd, "off-day LINE sent (next race unknown)")
+    from src.predictor.off_day_notify import send_off_day_team_broadcast
+
+    sent = send_off_day_team_broadcast(msg, date_yyyymmdd, next_date)
+    if sent and next_date:
+        log_watch(date_yyyymmdd, f"off-day broadcast done (next race {next_date})")
+    elif sent:
+        log_watch(date_yyyymmdd, "off-day broadcast done (next race unknown)")
 
 
 def notify_watch_started(date_yyyymmdd: str, schedule: dict, *, line_notify: bool) -> None:

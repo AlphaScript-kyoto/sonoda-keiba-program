@@ -16,7 +16,7 @@ from src.predictor.score import load_master
 from src.predictor.t10_daily_roi import _score_t10_race
 from src.predictor.upset_p6_rules import is_p6_eligible_plan
 from src.predictor.scoring_config import load_split_scoring_configs
-from src.scraper.payback import RacePayback
+from src.scraper.payback import RacePayback, finish_top3_from_payback
 
 
 @dataclass(frozen=True)
@@ -37,11 +37,18 @@ def evaluate_p6_payback_for_race(
     """T-10 P6 buy (sanren formation 5pt) hit check."""
     master_df = master if master is not None else load_master()
     win_cfg, ex_cfg = load_split_scoring_configs()
-    scored = _score_t10_race(date_yyyymmdd, race_id, master_df, win_cfg=win_cfg, ex_cfg=ex_cfg)
+    scored = _score_t10_race(
+        date_yyyymmdd,
+        race_id,
+        master_df,
+        win_cfg=win_cfg,
+        ex_cfg=ex_cfg,
+        require_result=False,
+    )
     if scored is None:
         return None
 
-    plan, _top5, final_race, _snap = scored
+    plan, top5, final_race, _snap = scored
     if not is_p6_eligible_plan(plan):
         return None
 
@@ -49,19 +56,23 @@ def evaluate_p6_payback_for_race(
     if formation is None or formation.points <= 0:
         return None
 
-    finish = _finish_order(final_race)
+    finish = _finish_order(final_race) if not final_race.empty else []
     if len(finish) < 3:
-        return None
+        pb_finish = finish_top3_from_payback(payback)
+        if pb_finish is None:
+            return None
+        finish = list(pb_finish)
 
     hit = check_sanrenpuku_formation_firm_hit(formation, finish)
     return_yen = payback.fuku3_yen if hit and payback else 0
     invest = formation.points * BET_UNIT
+    race_class = _race_class(final_race) if not final_race.empty else _race_class(top5)
     return P6PaybackEvaluation(
         hit=hit,
         return_yen=return_yen,
         investment=invest,
         finish=(finish[0], finish[1], finish[2]),
-        race_class=_race_class(final_race),
+        race_class=race_class,
     )
 
 

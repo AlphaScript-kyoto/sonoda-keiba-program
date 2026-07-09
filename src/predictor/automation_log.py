@@ -122,9 +122,15 @@ def send_alert(
         except ValueError:
             pass
 
+    from tools.discord_bot import send_discord_message
     from tools.line_bot import send_line_message
 
     text = f"\u3010\u5712\u7530\u30a2\u30e9\u30fc\u30c8\u3011\n{message}"
+    try:
+        send_discord_message(text, category="watch_alert")
+    except Exception:
+        # Keep LINE alert as primary fallback.
+        pass
     send_line_message(text)
     state[key] = datetime.now().isoformat(timespec="seconds")
     _save_alert_state(state)
@@ -156,8 +162,13 @@ def send_team_broadcast(
         except ValueError:
             pass
 
+    from tools.discord_bot import send_discord_message
     from tools.line_bot import format_line_delivery_log, send_line_predict_messages
 
+    try:
+        send_discord_message(message, category="watch_broadcast")
+    except Exception:
+        pass
     deliveries = send_line_predict_messages(message)
     if date_yyyymmdd:
         log_fn = log_run_today if log_channel == "run_today" else log_watch
