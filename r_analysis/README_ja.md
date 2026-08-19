@@ -37,8 +37,24 @@ source("r_analysis/scripts/06_bet_like_roi.R")     # (3) 実馬券に近いROI
 source("r_analysis/scripts/07_expected_value.R")   # (4) 期待値デシル
 source("r_analysis/scripts/08_jockey_track_bias.R") # (5) 騎手×馬場
 source("r_analysis/scripts/09_skipped_races.R")    # (6) 見送り最適化
+source("r_analysis/scripts/10_july2026_review.R")  # (7) 2026/7 振り返り
 source("r_analysis/scripts/run_all.R")              # 一括
 ```
+
+### 2026年7月だけ振り返るとき
+
+コピペ全文: **`r_analysis/scripts/JULY2026_COMMANDS.txt`**
+
+```powershell
+.\.venv\Scripts\python.exe scripts\analyze_july2026.py
+.\.venv\Scripts\python.exe scripts\export_backtest_for_r.py --from 20260101 --to 20260731
+```
+
+```r
+source("r_analysis/scripts/10_july2026_review.R", encoding = "UTF-8")
+```
+
+出力の起点: `r_analysis/output/reports/july2026_logic_guidance.md`
 
 ## 5. 主な出力
 

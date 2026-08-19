@@ -145,8 +145,11 @@ def send_nightly_roi_reports(date_yyyymmdd: str, gate_state) -> None:
         build_upset_high_daily_roi_report,
         format_upset_high_daily_roi_message,
     )
+    from tools.discord_bot import send_discord_message  # noqa: E402
     from tools.line_bot import (  # noqa: E402
         format_line_delivery_log,
+        is_line_notify_paused,
+        line_notify_pause_log_line,
         send_line_message,
         send_line_predict_messages,
     )
@@ -164,10 +167,18 @@ def send_nightly_roi_reports(date_yyyymmdd: str, gate_state) -> None:
     log_run_today(date_yyyymmdd, f"T-10 ROI report: {len(roi_report.races)} race(s)")
     print("\n=== T-10 ROI (S+) ===")
     print(roi_msg)
-    roi_deliveries = send_line_predict_messages(roi_msg)
-    for rec in roi_deliveries:
-        log_run_today(date_yyyymmdd, format_line_delivery_log(rec))
-    log_run_today(date_yyyymmdd, "T-10 ROI LINE sent (team + admin)")
+    if is_line_notify_paused():
+        log_run_today(date_yyyymmdd, line_notify_pause_log_line("nightly_t10_roi"))
+    else:
+        roi_deliveries = send_line_predict_messages(roi_msg)
+        for rec in roi_deliveries:
+            log_run_today(date_yyyymmdd, format_line_delivery_log(rec))
+        log_run_today(date_yyyymmdd, "T-10 ROI LINE sent (team + admin)")
+    try:
+        send_discord_message(roi_msg, category="nightly_t10_roi")
+        log_run_today(date_yyyymmdd, "T-10 ROI Discord sent")
+    except Exception as exc:
+        log_run_today(date_yyyymmdd, f"WARN T-10 ROI Discord failed: {exc}")
 
     try:
         uh_report = build_upset_high_daily_roi_report(
@@ -179,8 +190,16 @@ def send_nightly_roi_reports(date_yyyymmdd: str, gate_state) -> None:
         log_run_today(date_yyyymmdd, f"P6 ROI report: {len(uh_report.bets)} bet(s)")
         print("\n=== P6 nightly ROI ===")
         print(uh_msg)
-        send_line_message(uh_msg)
-        log_run_today(date_yyyymmdd, "P6 nightly ROI LINE sent (admin)")
+        if is_line_notify_paused():
+            log_run_today(date_yyyymmdd, line_notify_pause_log_line("nightly_p6_roi"))
+        else:
+            send_line_message(uh_msg)
+            log_run_today(date_yyyymmdd, "P6 nightly ROI LINE sent (admin)")
+        try:
+            send_discord_message(uh_msg, category="nightly_p6_roi")
+            log_run_today(date_yyyymmdd, "P6 nightly ROI Discord sent")
+        except Exception as exc:
+            log_run_today(date_yyyymmdd, f"WARN P6 ROI Discord failed: {exc}")
     except Exception as exc:
         log_run_today(date_yyyymmdd, f"upset-high ROI FAILED: {exc}")
         send_alert(

@@ -1,4 +1,5 @@
 @echo off
+REM Debug / interactive console. For Task Scheduler use start_run_today.vbs (no black window).
 setlocal EnableExtensions
 cd /d "%~dp0.."
 set "VENV_PY=%CD%\.venv\Scripts\python.exe"

@@ -20,6 +20,7 @@ from src.scraper.race_snapshots import (
     parse_capture_offsets,
     schedule_path,
 )
+from tools.line_bot import is_line_notify_paused, line_notify_pause_log_line
 
 
 def _today_yyyymmdd() -> str:
@@ -76,6 +77,10 @@ def main() -> None:
         flush=True,
     )
     log_watch(date_yyyymmdd, "watch_race_day.py started")
+    if is_line_notify_paused():
+        paused_msg = line_notify_pause_log_line("watch")
+        log_watch(date_yyyymmdd, paused_msg)
+        print(f"[watch] {paused_msg}", flush=True)
 
     try:
         sched = load_schedule(date_yyyymmdd)

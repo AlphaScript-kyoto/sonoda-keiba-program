@@ -1,0 +1,9 @@
+{
+  "profile_flip_skip": true,
+  "std_jump_skip": false,
+  "std_jump_threshold": 40.0,
+  "std_jump_mode": "observe",
+  "firm_volatile_mode": "observe",
+  "require_t30_for_buy": false,
+  "comment": "2026-07 review; Phase1 defaults (docs/OPS_GATE_SPEC_202607.md)"
+}

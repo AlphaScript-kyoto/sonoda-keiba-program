@@ -19,7 +19,7 @@ from src.predictor.backtest import (
 )
 from src.predictor.bets import DEFAULT_STRATEGY, should_skip_win_bet
 from src.predictor.score import load_master
-from src.predictor.scoring_config import ScoringConfig, load_split_scoring_configs
+from src.predictor.scoring_config import load_split_scoring_configs
 
 DEFAULT_OUT = ROOT / "r_analysis" / "input" / "backtest_rows.csv"
 FIRM = "\u5805"
@@ -142,8 +142,8 @@ def export_backtest_rows(
 
     race_ids = sorted(hist["race_id"].astype(str).unique().tolist())
     paybacks = _load_paybacks_for_races(race_ids, fetch_missing=fetch_payback)
-    win_cfg = ScoringConfig.load_tuned()
-    _, ex_cfg = load_split_scoring_configs()
+    # split scoring: 単勝=style / 三連=sanrenpuku（本番と同じ）
+    win_cfg, ex_cfg = load_split_scoring_configs()
     records = _collect_race_records(
         from_yyyymmdd,
         to_yyyymmdd,

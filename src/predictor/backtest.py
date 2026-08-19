@@ -495,9 +495,15 @@ def backtest_period(
     """期間内の全レースをオフライン予想し、回収率を集計。"""
     th = thresholds or DEFAULT_WIN_THRESHOLDS
     master = master if master is not None else load_master()
-    win_cfg = config or ScoringConfig.load_tuned()
-    if strategy.split_scoring and exotic_config is None:
-        _, exotic_config = load_split_scoring_configs()
+    # split: 未指定なら style(単勝) + sanrenpuku(三連)。単独 config 指定時は従来どおり。
+    if config is None and strategy.split_scoring:
+        win_cfg, split_ex = load_split_scoring_configs()
+        if exotic_config is None:
+            exotic_config = split_ex
+    else:
+        win_cfg = config or ScoringConfig.load_tuned()
+        if strategy.split_scoring and exotic_config is None:
+            _, exotic_config = load_split_scoring_configs()
     set_scoring_config(win_cfg)
 
     if records is None:

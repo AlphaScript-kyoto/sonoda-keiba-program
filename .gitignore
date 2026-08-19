@@ -9,6 +9,8 @@ venv/
 # --- Secrets / credentials (never commit) ---
 .env.local
 .env.*.local
+data/processed/line_team_registry.json
+RESTORE_SERVER.txt
 
 # --- Data: raw & master CSV (large, sync via iCloud etc.) ---
 data/raw/*.csv
@@ -39,6 +41,17 @@ data/processed/refresh_log.txt
 completion_email_draft.txt
 _tmp*
 _write_impl.py
+_bets_snip.txt
+_probe.py
+tmp_roi.txt
+predict_*.txt
+data/processed/predict_*.txt
+data/processed/logs/
+data/processed/snapshots/
+data/raw/fetch_log.txt
+scripts/_tmp_inspect.py
+tests/fixtures/_probe_log.txt
+*.rds
 
 # --- Backups / Cursor assets ---
 _pull_backup/

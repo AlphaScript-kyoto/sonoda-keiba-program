@@ -1,4 +1,5 @@
 @echo off
+REM Debug / interactive console. For Task Scheduler use start_check_watch_heartbeat.vbs (no black window).
 setlocal EnableExtensions
 cd /d "%~dp0.."
 set "PYTHONUNBUFFERED=1"

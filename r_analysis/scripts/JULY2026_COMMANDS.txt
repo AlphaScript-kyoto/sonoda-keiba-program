@@ -1,0 +1,77 @@
+# ============================================================
+# 2026年7月 振り返り — コピペ用コマンド集
+# 作業ディレクトリ: リポジトリ直下 sonoda-keiba-program
+# ============================================================
+
+# ------------------------------------------------------------
+# A. PowerShell（Python）— 先にこちら
+# ------------------------------------------------------------
+
+cd "C:\Users\ServerPC\Desktop\programming\sonoda-keiba-program"
+
+# 0) （任意）払戻が不足しているときだけ。時間がかかる
+# .\.venv\Scripts\python.exe scripts/fetch_paybacks.py --from 20260701 --to 20260731
+
+# 1) 本番ロジックの7月バックテスト（回収率サマリ）
+.\.venv\Scripts\python.exe scripts\backtest_bets.py --from 20260701 --to 20260731 --detail 40
+
+# 2) 期間比較 + 当日compareレポート集計
+#    ※ 直下の Python analyze_july2026.py は NG（scripts\ 配下にあります）
+#    まず速い確認（7月のみ）:
+.\.venv\Scripts\python.exe scripts\analyze_july2026.py --quick
+
+#    即時: compare_report だけ（予想スコアなし）
+.\.venv\Scripts\python.exe scripts\analyze_july2026.py --skip-scoring
+
+#    本格比較（1-7月・時間がかかる）:
+.\.venv\Scripts\python.exe scripts\analyze_july2026.py
+
+#    ダブルクリック起動可: scripts\run_analyze_july2026.cmd
+
+# 3) R用に7月を含む広めにエクスポート（1-7月比較表が埋まる）
+.\.venv\Scripts\python.exe scripts\export_backtest_for_r.py --from 20260101 --to 20260731
+
+#    7月だけでも可（期間比較の過去月は空になる）
+# .\.venv\Scripts\python.exe scripts\export_backtest_for_r.py --from 20260701 --to 20260731
+
+# ------------------------------------------------------------
+# B. RStudio コンソール — プロジェクトを開いてから
+# ------------------------------------------------------------
+# File > Open Project > sonoda-keiba-program.Rproj
+# 初回のみ:
+# install.packages(c("tidyverse", "jsonlite", "readr"))
+
+source("r_analysis/scripts/00_setup.R", encoding = "UTF-8")
+
+# 7月専用振り返り（表 + guidance.md）
+source("r_analysis/scripts/10_july2026_review.R", encoding = "UTF-8")
+
+# （任意）既存の横断分析も回す場合
+# source("r_analysis/scripts/04_segment_analysis.R", encoding = "UTF-8")
+# source("r_analysis/scripts/07_expected_value.R", encoding = "UTF-8")
+# source("r_analysis/scripts/09_skipped_races.R", encoding = "UTF-8")
+
+# ------------------------------------------------------------
+# C. Rscript（コンソール不要）
+# ------------------------------------------------------------
+
+# リポジトリ直下で:
+# Rscript r_analysis/scripts/10_july2026_review.R
+
+# パスが迷う場合:
+# $env:SONODA_KEIBA_ROOT = "C:\Users\ServerPC\Desktop\programming\sonoda-keiba-program"
+# Rscript r_analysis/scripts/10_july2026_review.R
+
+# ------------------------------------------------------------
+# D. 結果の見どころファイル
+# ------------------------------------------------------------
+# r_analysis/output/reports/july2026_logic_guidance.md
+# r_analysis/output/tables/july_overall_roi.csv
+# r_analysis/output/tables/july_period_compare.csv
+# r_analysis/output/tables/july_weekly_roi.csv
+# r_analysis/output/tables/july_daily_roi.csv
+# r_analysis/output/tables/july_segment_exotic_profile.csv
+# r_analysis/output/tables/july_sanren_loss_top30.csv
+# r_analysis/output/tables/july_calibration_bins.csv
+# r_analysis/output/tables/july_compare_by_snapshot.csv
+# r_analysis/input/july2026_compare_summary.csv   (analyze_july2026.py が作成)

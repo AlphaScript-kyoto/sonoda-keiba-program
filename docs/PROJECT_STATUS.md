@@ -1,16 +1,20 @@
-# プロジェクト現状メモ（2026-06 時点）
+# プロジェクト現状メモ（2026-08 時点）
 
 出先 PC や新しい Cursor セッション向け。**会話履歴が無くてもここを読めば続きが分かる**。
 
-**リポジトリ / フォルダ名:** `sonoda-keiba-program`（旧: 園田特化予想プログラム）
+**リポジトリ / フォルダ名:** `sonoda-keiba-program`（旧: 園田特化予想プログラム）  
+**GitHub:** https://github.com/AlphaScript-kyoto/sonoda-keiba-program
 
 | 環境 | パス例 |
 |------|--------|
+| サーバーPC（2026-08〜運用中） | `C:\Users\ServerPC\Desktop\programming\sonoda-keiba-program` |
 | オリジナル PC | `C:\Users\1180075\Desktop\プログラミング\sonoda-keiba-program` |
 | 自宅 PC（2026-06） | `C:\Users\akimi\Desktop\プログラミング\sonoda-keiba-program` |
-| その他 | `git clone` 後 `cd sonoda-keiba-program` |
+| その他 | `git clone https://github.com/AlphaScript-kyoto/sonoda-keiba-program.git` 後 `cd sonoda-keiba-program` |
 
-**直近の目標:** **2026/6/3（火）園田** 当日オペ（予想 UI → note/X → 終了後データ更新）。UI・馬柱・`run_today.py` は **2026-06-02 実装済み**。
+**運用（2026-08）:** サーバーPCで当日監視（T-10）と夜間取得を自動実行。手元PCの同名タスクは無効化。詳細は `SERVER_SETUP_GUIDE.md`。
+
+**過去の当日オペ（記録）:** 2026/6/3 園田。UI・馬柱・`run_today.py` は 2026-06-02 実装済み。
 
 ---
 
@@ -171,7 +175,9 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 | **`python scripts/fetch_daily.py --date YYYYMMDD`** | **取得 + master 更新を一括**（開催日の夜向け） |
 | **`python run_today.py`** | **今日の日付で `fetch_daily` 実行 + LINE 通知**（ルート） |
 | python scripts/predict.py --date YYYYMMDD | 予想 + 馬券案（CLI） |
-| `.\.venv\Scripts\python.exe -m streamlit run app/predict_app.py` | **当日予想 UI**（推奨・VS Code タスク可） |
+| `.\.venv\Scripts\python.exe app/predict_desktop.py` | **当日予想デスクトップ**（Flet・推奨） |
+| `scripts/start_predict_desktop.cmd` / `scripts/create_desktop_shortcut.ps1` | ダブルクリック起動 / デスクトップにショートカット作成 |
+| `.\.venv\Scripts\python.exe -m streamlit run app/predict_app.py` | **当日予想 Web UI**（Streamlit） |
 | `scripts/predict_ui.py` | 起動用ラッパーのみ（本体は `src/predictor/predict_ui_app.py`） |
 | `python scripts/send_line_completion.py` | 作業完了サマリを LINE 送信（任意） |
 | python scripts/backtest_bets.py --from ... --to ... | 馬券バックテスト |
@@ -200,7 +206,7 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 
 ## 8. 次にやること（優先順）
 
-### 完了済み（2026-06）
+### 完了済み（2026-06〜07 分析）
 
 - style vs sanrenpuku A/B → split scoring 採用
 - 2026/1-5・期間分割・2025 通年バックテスト（split + 新三連系閾値）
@@ -214,6 +220,23 @@ payback キャッシュが無い場合は `--fetch-payback`（数時間かかる
 - UI 本体を `src/predictor/predict_ui_app.py` に移動（UTF-16 化対策）
 - **R 分析用 `r_analysis/` 追加**（Python 予想コードは未変更）→ **§11**
 - **データ品質（2026-06-04）**: nar.netkeiba UTF-8 対応・6/3 raw 再取得・着差正規化 → **§11.3**
+- **T-10 通知リトライ（2026-07-30）**: DNS/接続瞬断時に HTTP 再試行強化 + 発走前まで約60秒おき再挑戦（`client.py` / `race_day_notify.py`）
+- **2026/7 振り返り（2026-08-03）**: `analyze_july2026.py` + R `10_july2026_review.R`
+  - 7月: 単勝 ROI 87.9% / 三連 71.7%（堅 69.5% が弱い。荒 79.4%）
+  - 最悪週 W30（7/22 前後）。T-10 exotic 一致 ~66%
+  - **運用ゲート仕様** → **`docs/OPS_GATE_SPEC_202607.md`**
+  - **Phase1 実装（2026-08-03）**: T-10 買い目ゲート
+    - R1 プロフィール反転見送り（ON）… `config/ops_gates.json` + `src/predictor/ops_gates.py`
+    - R2 std ジャンプ … 既定 observe（ログのみ）
+    - R3 堅×volatile … 既定 observe（メッセージ注記）
+    - オフライン BT 既定は未変更
+
+### 次にやること（2026-08 時点・優先順）
+
+1. 開催2日分で `watch_*.log` / `ops_gate_decisions.jsonl` を確認（R1 ヒット件数）
+2. R2/R3 を `skip` に上げるか判断（2開催後）
+3. （任意）Phase 2: 堅×volatile のオフライン閾値 A/B ※1–5月 holdout 必須
+4. **やらない**: 7月だけで三連閾値・重みを全面再チューニング
 
 ### 6/3 当日 — オペレーション（これで足りる）
 

@@ -5,16 +5,18 @@
 ## セットアップ
 
 ```powershell
-# GitHub から取得する場合（リポジトリ名 = フォルダ名 sonoda-keiba-program）
-git clone <repo-url>
+# GitHub から取得する場合
+git clone https://github.com/AlphaScript-kyoto/sonoda-keiba-program.git
 cd sonoda-keiba-program
 
-# 既にローカルにある場合（例: オリジナル PC）
-# cd "C:\Users\1180075\Desktop\プログラミング\sonoda-keiba-program"
+# 既にローカルにある場合の例
+# サーバーPC:  cd "C:\Users\ServerPC\Desktop\programming\sonoda-keiba-program"
+# オリジナルPC: cd "C:\Users\1180075\Desktop\プログラミング\sonoda-keiba-program"
 
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+copy .env.example .env   # 中身に LINE / Discord の値を入れる（.env は Git に載せない）
 ```
 
 ## 使い方
@@ -34,10 +36,43 @@ python scripts/fetch_races.py --race-id 202650052201 --save
 # 予想（CLI）
 python scripts/predict.py --date YYYYMMDD
 
+# 当日予想デスクトップ（推奨）
+.\.venv\Scripts\python.exe app/predict_desktop.py
+
 # 当日予想 UI（ブラウザ）
 .\.venv\Scripts\python.exe -m streamlit run app/predict_app.py
+
+# 当日ウォッチ（T-10 予想 → Discord/LINE）
+python scripts/watch_race_day.py
+
+# 夜間取得（結果・master 更新・通知）
+python run_today.py
+
+# 2026/7 振り返り（※ scripts\ 配下を指定。直下の analyze_july2026.py ではない）
+.\.venv\Scripts\python.exe scripts\analyze_july2026.py --quick
+.\.venv\Scripts\python.exe scripts\export_backtest_for_r.py --from 20260101 --to 20260731
+# RStudio: source("r_analysis/scripts/10_july2026_review.R", encoding = "UTF-8")
+# コマンド一覧: r_analysis/scripts/JULY2026_COMMANDS.txt
 ```
 
+ログは `data/processed/logs/watch_YYYYMMDD.log` に残ります。DNS など一時的な通信失敗時は、HTTP 側の再試行に加え、発走前まで約60秒おきに T-10 投稿を再挑戦します。
+
+## サーバーPCでの自動運用
+
+詳細は `SERVER_SETUP_GUIDE.md` を参照してください。タスク登録は次のコマンドです。
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\register_server_tasks.ps1
+```
+
+| タスク名 | 時刻 | 内容 |
+|----------|------|------|
+| 園田_当日監視 | 毎日 09:00 | `watch_race_day.py`（T-10 予想など） |
+| 心拍チェック(20min) | 09:00〜12時間・15分間隔 | 監視プロセスの生存確認 |
+| 園田_夜間取得 | 毎日 21:00 | `run_today.py` |
+
+**重要:** 手元PC側の同名タスクは無効化してください（二重通知防止）。
 ### 取得期間の設定
 
 `config/scrape_range.py` で開始・終了日（YYYYMMDD）を指定します。将来は最古日～最新日に変更して一括取得できます。
@@ -52,11 +87,17 @@ clone 後は `data/processed/horses_master.csv` をクラウドから置くこ�
 
 ## ディレクトリ構成
 
-- `config/` … 会場コード・URL・パス
+- `config/` … 会場コード・URL・パス・重み・ゲート設定
 - `src/scraper/` … netkeiba からの取得・パース
 - `src/storage/` … CSV 保存
-- `src/predictor/` … 勝率などの簡易予想
-- `data/raw/` … 取得した生 CSV
+- `src/predictor/` … 予想・馬券・当日 UI / デスクトップ
+- `app/predict_desktop.py` … 当日予想デスクトップ（Flet）の起動
+- `app/predict_app.py` … 当日予想 Web UI（Streamlit）の起動
+- `docs/OPS_GATE_SPEC_202607.md` … 2026/7 分析に基づく当日ゲート仕様（Phase1 実装済）
+- `config/ops_gates.json` … T-10 買い目ゲート設定（R1/R2/R3）
+- `src/predictor/ops_gates.py` … ゲート判定
+- `SERVER_SETUP_GUIDE.md` … サーバーPCへの引っ越し・タスク登録
+- `data/raw/` … 取得した生 CSV（Git には入れない）
 - `scripts/` … 実行用エントリポイント
 
 ## netkeiba 利用上の注意
@@ -113,7 +154,7 @@ python scripts/fetch_races.py --save
 1. [x] 1レース結果の取得・パース
 2. [x] 開催日単位の一括取得
 3. [x] CSV 保存
-4. [ ] 過去データによる勝率予想
+4. [x] 過去データによる勝率予想・馬券案・当日 UI / サーバー自動運用
 
 ## 開発者向け（出先 PC / 新規 Cursor セッション）
 

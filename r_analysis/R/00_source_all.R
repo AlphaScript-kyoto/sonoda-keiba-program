@@ -18,5 +18,6 @@ source_project(
   "10_bet_like_roi.R",
   "11_expected_value.R",
   "12_jockey_track_bias.R",
-  "13_skipped_races.R"
+  "13_skipped_races.R",
+  "14_july2026_review.R"
 )

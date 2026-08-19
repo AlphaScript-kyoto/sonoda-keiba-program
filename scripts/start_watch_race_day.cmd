@@ -1,4 +1,5 @@
 @echo off
+REM Debug / interactive console. For Task Scheduler use start_watch_race_day.vbs (no black window).
 setlocal EnableExtensions
 cd /d "%~dp0.."
 set "PYTHONUNBUFFERED=1"

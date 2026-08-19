@@ -10,8 +10,8 @@ from email.mime.text import MIMEText
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TO = "akimine11010@gmail.com"
-SUBJECT = "[sonoda-keiba] 会社PC作業完了・GitHub push済み (ca8a241)"
+TO = os.environ.get("COMPLETION_REPORT_TO") or os.environ.get("GMAIL_USER") or ""
+SUBJECT = "[sonoda-keiba] 会社PC作業完了・GitHub push済み"
 
 
 def _body() -> str:
@@ -20,8 +20,7 @@ def _body() -> str:
     return f"""園田競馬プロジェクト — 会社PC作業完了報告
 
 GitHub push 完了
-  リポジトリ: https://github.com/gurashiroozisan/sonoda-keiba-program
-  コミット: ca8a241
+  リポジトリ: https://github.com/AlphaScript-kyoto/sonoda-keiba-program
   ブランチ: main
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -84,12 +83,14 @@ def main() -> int:
     smtp_port = int(os.environ.get("SMTP_PORT", "587"))
     smtp_user = os.environ.get("SMTP_USER") or os.environ.get("GMAIL_USER")
     smtp_pass = os.environ.get("SMTP_PASSWORD") or os.environ.get("GMAIL_APP_PASSWORD")
-    from_addr = os.environ.get("SMTP_FROM") or smtp_user or "akimine11010@gmail.com"
+    from_addr = os.environ.get("SMTP_FROM") or smtp_user or ""
+    to_addr = TO
 
-    if not smtp_pass or not smtp_user:
-        print("ERROR: SMTP_USER + SMTP_PASSWORD (または GMAIL_APP_PASSWORD) が未設定", file=sys.stderr)
-        print("  例: $env:GMAIL_USER='akimine11010@gmail.com'", file=sys.stderr)
+    if not smtp_pass or not smtp_user or not to_addr:
+        print("ERROR: SMTP_USER + SMTP_PASSWORD (または GMAIL_APP_PASSWORD) と COMPLETION_REPORT_TO が未設定", file=sys.stderr)
+        print("  例: $env:GMAIL_USER='your.email@example.com'", file=sys.stderr)
         print("      $env:GMAIL_APP_PASSWORD='xxxx xxxx xxxx xxxx'", file=sys.stderr)
+        print("      $env:COMPLETION_REPORT_TO='your.email@example.com'", file=sys.stderr)
         # 本文をファイルに保存して終了
         out = ROOT / "completion_email_draft.txt"
         out.write_text(f"To: {TO}\nSubject: {SUBJECT}\n\n{body}", encoding="utf-8")

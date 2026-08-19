@@ -1,5 +1,7 @@
 """netkeiba への HTTP リクエスト。"""
 
+from __future__ import annotations
+
 import random
 import re
 import time
@@ -19,13 +21,47 @@ from config.settings import (
 
 _last_request_at: float = 0.0
 _next_interval_sec: float = 0.0
-_MAX_RETRIES = 3
+_MAX_RETRIES = 5
 _RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+# DNS / 接続瞬断向け。短すぎると今回のように発走まで間に合わない。
+_NETWORK_RETRY_BACKOFF_SEC = (5.0, 15.0, 30.0, 45.0, 60.0)
 _HOURLY_WINDOW_SEC = 3600.0
 
 
 class NetkeibaBlockedError(requests.HTTPError):
     """通信制限等で netkeiba が HTTP 400 を返した場合。"""
+
+
+def is_transient_network_error(exc: BaseException) -> bool:
+    """DNS 失敗・タイムアウト等、しばらく待てば復帰しうるエラーか。"""
+    if isinstance(exc, NetkeibaBlockedError):
+        return False
+    if isinstance(exc, (requests.Timeout, requests.ConnectionError)):
+        return True
+    if isinstance(exc, requests.RequestException):
+        msg = str(exc).lower()
+        needles = (
+            "nameresolution",
+            "getaddrinfo",
+            "failed to resolve",
+            "max retries exceeded",
+            "connection aborted",
+            "connection reset",
+            "temporarily unavailable",
+            "timed out",
+            "timeout",
+        )
+        return any(n in msg for n in needles)
+    name = type(exc).__name__
+    if name in {
+        "NameResolutionError",
+        "ConnectTimeoutError",
+        "ReadTimeoutError",
+        "NewConnectionError",
+        "ProtocolError",
+    }:
+        return True
+    return False
 
 
 class _HourlyRateLimiter:
@@ -216,8 +252,15 @@ def fetch_html(url: str, *, respect_interval: bool = True) -> str:
             raise
         except requests.RequestException as exc:
             last_error = exc
-            if attempt + 1 < _MAX_RETRIES:
-                time.sleep(REQUEST_INTERVAL_MAX_SEC * (attempt + 1))
+            if attempt + 1 >= _MAX_RETRIES:
+                break
+            if is_transient_network_error(exc):
+                delay = _NETWORK_RETRY_BACKOFF_SEC[
+                    min(attempt, len(_NETWORK_RETRY_BACKOFF_SEC) - 1)
+                ]
+            else:
+                delay = REQUEST_INTERVAL_MAX_SEC * (attempt + 1)
+            time.sleep(delay)
 
     assert last_error is not None
     raise last_error

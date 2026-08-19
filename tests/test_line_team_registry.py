@@ -64,6 +64,7 @@ def test_send_line_team_messages_uses_push_per_member(monkeypatch):
         resp.headers = {"x-line-request-id": "team-req"}
         return resp
 
+    monkeypatch.setenv("LINE_NOTIFY_PAUSED", "0")
     monkeypatch.setattr(line_bot, "team_user_ids", lambda: ["Uteam1234"])
     monkeypatch.setattr(line_bot, "_post_line_push", fake_push)
 
@@ -90,6 +91,7 @@ def test_send_line_predict_messages_team_and_admin_separate(monkeypatch):
         return resp
 
     monkeypatch.setenv("LINE_USER_ID", "Uadmin5678")
+    monkeypatch.setenv("LINE_NOTIFY_PAUSED", "0")
     monkeypatch.setattr(line_bot, "team_user_ids", lambda: ["Uteam1234"])
     monkeypatch.setattr(line_bot, "_post_line_push", fake_push)
 
@@ -107,6 +109,7 @@ def test_send_line_predict_messages_skips_duplicate_admin_push(monkeypatch):
     import tools.line_bot as line_bot
 
     monkeypatch.setenv("LINE_USER_ID", "Uadmin5678")
+    monkeypatch.setenv("LINE_NOTIFY_PAUSED", "0")
     monkeypatch.setattr(line_bot, "team_user_ids", lambda: ["Uadmin5678"])
 
     def fake_push(user_id: str, text: str):

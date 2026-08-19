@@ -15,6 +15,18 @@ load_dotenv(ROOT / ".env")
 
 LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push"
 LINE_TEXT_LIMIT = 4800
+PAUSED_STATUS_CODE = 0
+_LINE_PAUSED_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+
+def is_line_notify_paused() -> bool:
+    """True when LINE_NOTIFY_PAUSED is set (1/on/true/yes). Discord is unaffected."""
+    raw = os.getenv("LINE_NOTIFY_PAUSED", "").strip().lower()
+    return raw in _LINE_PAUSED_TRUTHY
+
+
+def line_notify_pause_log_line(channel: str = "all") -> str:
+    return f"LINE push {channel} skipped (LINE_NOTIFY_PAUSED=1)"
 
 
 @dataclass(frozen=True)
@@ -30,11 +42,32 @@ class LineSendResult:
 
 def format_line_delivery_log(result: LineSendResult) -> str:
     """Single-line delivery record for automation logs."""
+    if result.status_code == PAUSED_STATUS_CODE:
+        return line_notify_pause_log_line(result.channel)
     return (
         f"LINE push {result.channel} ...{result.user_id_suffix} "
         f"status={result.status_code} req={result.request_id or '?'} "
         f"chunk={result.chunk}"
     )
+
+
+def _paused_send_results(channel: str) -> list[LineSendResult]:
+    print(line_notify_pause_log_line(channel))
+    return [
+        LineSendResult(
+            channel=channel,
+            user_id_suffix="----",
+            status_code=PAUSED_STATUS_CODE,
+            request_id="paused",
+            chunk="skipped",
+        )
+    ]
+
+
+def _paused_http_response() -> requests.Response:
+    response = requests.Response()
+    response.status_code = 200
+    return response
 
 
 def chunk_text_for_line(text: str, max_len: int = LINE_TEXT_LIMIT) -> list[str]:
@@ -176,6 +209,9 @@ def send_line_message(message: str) -> requests.Response:
 
 def send_line_messages(message: str) -> requests.Response:
     """管理者向け push。長文は分割。Returns the last response."""
+    if is_line_notify_paused():
+        _paused_send_results("admin_push")
+        return _paused_http_response()
     _, user_id = _line_credentials()
     results = _push_text_to_user(user_id, message, channel="admin_push")
     return _last_response(results)
@@ -183,6 +219,8 @@ def send_line_messages(message: str) -> requests.Response:
 
 def send_line_team_messages(message: str) -> list[LineSendResult]:
     """LINE_TEAM_USER_IDS の各ユーザーへ push（1人ずつ）。"""
+    if is_line_notify_paused():
+        return _paused_send_results("team_push")
     user_ids = team_user_ids()
     if not user_ids:
         raise RuntimeError(
@@ -200,6 +238,8 @@ def send_line_team_messages(message: str) -> list[LineSendResult]:
 
 def send_line_predict_messages(message: str) -> list[LineSendResult]:
     """T-10 predict: team push (per member) + admin push when not in team."""
+    if is_line_notify_paused():
+        return _paused_send_results("predict")
     admin_id = os.getenv("LINE_USER_ID", "").strip()
     team_ids = team_user_ids()
     results: list[LineSendResult] = []

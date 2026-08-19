@@ -21,7 +21,7 @@ def main() -> int:
     parser.add_argument("--race", type=int, default=1)
     args = parser.parse_args()
 
-    _plan, text, _buy = build_race_line_messages(
+    _plan, text, _buy, _x, _std = build_race_line_messages(
         args.date,
         args.race,
         include_netkeiba_marks_link=True,

@@ -20,7 +20,7 @@ from src.predictor.bets import assign_marks
 from src.predictor.post_format import format_race_copy
 from src.predictor.predict_day import PredictDayResult, run_predict_day_safe
 from src.predictor.race_schedule import normalize_post_time, race_post_datetime
-from src.scraper.client import NetkeibaBlockedError
+from src.scraper.client import NetkeibaBlockedError, is_transient_network_error
 from src.scraper.race_snapshots import (
     CaptureJob,
     DEFAULT_CAPTURE_OFFSETS,
@@ -36,6 +36,10 @@ from src.scraper.race_snapshots import (
 from src.scraper.sonoda_history import find_next_sonoda_race_date_after
 
 LINE_NOTIFY_OFFSET = 10
+# T-10 投稿失敗時: その場で再試行 → それでもダメなら発走前まで短間隔で起こす
+LINE_NOTIFY_INLINE_ATTEMPTS = 3
+LINE_NOTIFY_INLINE_BACKOFF_SEC = (20.0, 40.0, 60.0)
+LINE_NOTIFY_REWAKE_SEC = 60
 S_PLUS_PAYBACK_START_MINUTES = 5
 S_PLUS_PAYBACK_POLL_MINUTES = 5
 S_PLUS_PAYBACK_TIMEOUT_MINUTES = 180
@@ -47,12 +51,57 @@ def _send_discord_safe(date_yyyymmdd: str, message: str, *, category: str) -> No
 
     if not str(message or "").strip():
         return
-    try:
-        send_discord_message(message, category=category)
-    except Exception as exc:
+    attempts = 3
+    for attempt in range(attempts):
+        try:
+            send_discord_message(message, category=category)
+            return
+        except Exception as exc:
+            if attempt + 1 < attempts and is_transient_network_error(exc):
+                time.sleep(5.0 * (attempt + 1))
+                continue
+            log_watch(
+                date_yyyymmdd,
+                f"WARN Discord {category} send failed: {exc}",
+            )
+            return
+
+
+def next_line_notify_retry_wake(
+    date_yyyymmdd: str,
+    schedule: dict,
+    *,
+    notify_offset: int = LINE_NOTIFY_OFFSET,
+    now: Optional[datetime] = None,
+    rewake_sec: int = LINE_NOTIFY_REWAKE_SEC,
+) -> Optional[datetime]:
+    """未送信の T-10 があるとき、発走前まで短間隔で起こす時刻。"""
+    current = now or datetime.now()
+    pending = due_line_notify_jobs(
+        date_yyyymmdd,
+        schedule,
+        notify_offset=notify_offset,
+        now=current,
+    )
+    if not pending:
+        return None
+    return current + timedelta(seconds=max(1, int(rewake_sec)))
+
+
+def _copy_t10_x_post_to_clipboard(date_yyyymmdd: str, race_no: int, x_post_text: str) -> None:
+    from tools.clipboard_util import copy_to_clipboard, t10_clipboard_enabled
+
+    if not t10_clipboard_enabled():
+        return
+    if copy_to_clipboard(x_post_text):
         log_watch(
             date_yyyymmdd,
-            f"WARN Discord {category} send failed: {exc}",
+            f"clipboard R{race_no} X post ready ({len(x_post_text)} chars)",
+        )
+    else:
+        log_watch(
+            date_yyyymmdd,
+            f"WARN clipboard copy failed R{race_no}",
         )
 
 
@@ -365,7 +414,7 @@ def build_race_line_message(
     *,
     result: Optional[PredictDayResult] = None,
 ) -> str:
-    _, text, _ = build_race_line_messages(date_yyyymmdd, race_no, result=result)
+    _, text, _, _, _ = build_race_line_messages(date_yyyymmdd, race_no, result=result)
     return text
 
 
@@ -442,42 +491,50 @@ def build_race_line_messages(
     *,
     result: Optional[PredictDayResult] = None,
     include_netkeiba_marks_link: Optional[bool] = None,
-) -> tuple[Optional[object], str, Optional[str]]:
+) -> tuple[Optional[object], str, Optional[str], str, float]:
+    """Return plan, predict text, optional S+ buy text, x_post text, odds_std."""
+    from src.predictor.ops_gates import odds_std_from_scored
+
     if result is None:
         result = run_predict_day_safe(
             date_yyyymmdd,
             only_race_nos={int(race_no)},
         )
     if result.message and result.win_df.empty:
-        return None, (
+        err = (
             f"{int(race_no)}R\n"
             f"\u4e88\u60f3\u30c7\u30fc\u30bf\u306e\u6e96\u5099\u304c\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002"
-        ), None
+        )
+        return None, err, None, err, 0.0
 
     plan = _plan_for_race(result, race_no)
     if plan is None:
-        return None, (
+        err = (
             f"{int(race_no)}R\n"
             f"\u4e88\u60f3\u5bfe\u8c61\u304c\u3042\u308a\u307e\u305b\u3093\u3067\u3057\u305f\u3002"
-        ), None
+        )
+        return None, err, None, err, 0.0
 
     header = build_line_predict_header(plan)
     body = format_race_copy(plan, result.win_df, result.exotic_df)
     from src.predictor.t10_daily_roi import format_s_plus_buy_line_message
 
-    top5 = assign_marks(_exotic_frame_for_race(result, race_no))
+    exotic_frame = _exotic_frame_for_race(result, race_no)
+    top5 = assign_marks(exotic_frame)
+    odds_std = odds_std_from_scored(exotic_frame)
     buy_text = format_s_plus_buy_line_message(plan, top5, header_line=header)
     add_marks_link = (
         include_netkeiba_marks_link
         if include_netkeiba_marks_link is not None
         else netkeiba_marks_link_enabled()
     )
-    text = f"{header}\n\n{body}"
+    x_post_text = f"{header}\n\n{body}"
+    text = x_post_text
     if add_marks_link:
         from src.predictor.netkeiba_marks import format_netkeiba_marks_block
 
         text += format_netkeiba_marks_block(plan)
-    return plan, text, buy_text
+    return plan, text, buy_text, x_post_text, odds_std
 
 
 def due_line_notify_jobs(
@@ -510,6 +567,8 @@ def send_line_notifications(
 ) -> List[str]:
     from tools.line_bot import (
         format_line_delivery_log,
+        is_line_notify_paused,
+        line_notify_pause_log_line,
         send_line_message,
         send_line_predict_messages,
         team_user_ids,
@@ -517,6 +576,11 @@ def send_line_notifications(
     import os
 
     from src.predictor.backtest import BET_UNIT
+    from src.predictor.ops_gates import (
+        annotate_message_with_notes,
+        evaluate_buy_ops_gates,
+        load_ops_gate_config,
+    )
     from src.predictor.score import load_master
     from src.predictor.upset_high_bet_gate import (
         build_pause_skip_message,
@@ -537,135 +601,240 @@ def send_line_notifications(
 
     master = load_master()
     gate_state = on_race_day_open(date_yyyymmdd, load_state(), master=master)
+    ops_cfg = load_ops_gate_config()
 
     sent: List[str] = []
     for job in jobs:
-        try:
-            plan, text, buy_text = build_race_line_messages(date_yyyymmdd, job.race_no)
-            post_time = (
-                normalize_post_time(plan.post_time)
-                if plan is not None and plan.post_time
-                else normalize_post_time(job.post_time)
-            )
-            race_name = (
-                str(plan.race_name or "").strip()
-                if plan is not None
-                else str(job.race_name or "")
-            )
-            schedule_update = update_schedule_race_meta(
-                date_yyyymmdd,
-                job.race_id,
-                post_time=post_time,
-                race_name=race_name,
-            )
-            if schedule_update:
-                old_post, new_post = schedule_update
-                log_watch(
+        last_exc: Optional[BaseException] = None
+        for attempt in range(LINE_NOTIFY_INLINE_ATTEMPTS):
+            try:
+                plan, text, buy_text, x_post_text, odds_std = build_race_line_messages(
+                    date_yyyymmdd, job.race_no
+                )
+                post_time = (
+                    normalize_post_time(plan.post_time)
+                    if plan is not None and plan.post_time
+                    else normalize_post_time(job.post_time)
+                )
+                race_name = (
+                    str(plan.race_name or "").strip()
+                    if plan is not None
+                    else str(job.race_name or "")
+                )
+                schedule_update = update_schedule_race_meta(
                     date_yyyymmdd,
-                    f"schedule post_time R{job.race_no} {job.race_id} "
-                    f"{old_post} -> {new_post}",
+                    job.race_id,
+                    post_time=post_time,
+                    race_name=race_name,
                 )
-            deliveries = send_line_predict_messages(text)
-            for rec in deliveries:
-                log_watch(date_yyyymmdd, format_line_delivery_log(rec))
-            _send_discord_safe(date_yyyymmdd, text, category="t10_predict")
-            if buy_text:
-                buy_deliveries = _send_member_only_line(buy_text)
-                if not buy_deliveries:
+                if schedule_update:
+                    old_post, new_post = schedule_update
                     log_watch(
                         date_yyyymmdd,
-                        f"WARN S+ buy skipped R{job.race_no} "
-                        "(LINE_TEAM_USER_IDS empty)",
+                        f"schedule post_time R{job.race_no} {job.race_id} "
+                        f"{old_post} -> {new_post}",
                     )
-                else:
-                    for rec in buy_deliveries:
-                        log_watch(date_yyyymmdd, format_line_delivery_log(rec))
-                    _send_discord_safe(
-                        date_yyyymmdd,
-                        buy_text,
-                        category="s_plus_buy",
-                    )
-                    register_s_plus_payback_target(
-                        date_yyyymmdd,
-                        race_id=job.race_id,
-                        race_no=job.race_no,
-                        race_name=race_name,
-                        post_time=post_time,
-                    )
-                    log_watch(
-                        date_yyyymmdd,
-                        f"LINE S+ buy sent R{job.race_no} {job.race_id}",
-                    )
-            upset_text = build_upset_high_admin_line_message(
-                date_yyyymmdd, job.race_no, plan
-            )
-            if upset_text:
-                ok, reason = should_send_upset_high_buy(
-                    gate_state, date_yyyymmdd, master=master, plan=plan
+                deliveries = send_line_predict_messages(text)
+                for rec in deliveries:
+                    log_watch(date_yyyymmdd, format_line_delivery_log(rec))
+                _send_discord_safe(date_yyyymmdd, text, category="t10_predict")
+                _copy_t10_x_post_to_clipboard(date_yyyymmdd, job.race_no, x_post_text)
+                line_paused = is_line_notify_paused()
+
+                ops_dec = evaluate_buy_ops_gates(
+                    date_yyyymmdd,
+                    job.race_id,
+                    plan,
+                    master,
+                    odds_std_t10=odds_std,
+                    config=ops_cfg,
                 )
-                if ok:
-                    resp = send_line_message(upset_text)
-                    if resp.status_code != 200:
-                        raise RuntimeError(
-                            f"admin upset-high push failed: {resp.status_code} {resp.text}"
-                        )
-                    _send_discord_safe(
-                        date_yyyymmdd,
-                        upset_text,
-                        category="p6_buy",
-                    )
-                    invest = 0
-                    if plan and plan.sanrenpuku_formation:
-                        invest = plan.sanrenpuku_formation.points * BET_UNIT
-                    record_signaled_bet(
-                        gate_state, date_yyyymmdd, job.race_no, invest
-                    )
-                    register_p6_payback_target(
-                        date_yyyymmdd,
-                        race_id=job.race_id,
-                        race_no=job.race_no,
-                        race_name=race_name,
-                        post_time=post_time,
-                    )
+                for line in ops_dec.log_lines:
+                    log_watch(date_yyyymmdd, line)
+
+                if buy_text and not ops_dec.allow_s_plus:
                     log_watch(
                         date_yyyymmdd,
-                        f"LINE P6 buy sent R{job.race_no} {job.race_id}",
+                        f"OPS_GATE S+ buy blocked R{job.race_no} "
+                        f"({', '.join(ops_dec.skip_reasons) or 'blocked'})",
                     )
-                else:
-                    if gate_state.pause_notified_date != date_yyyymmdd:
-                        skip_msg = build_pause_skip_message(
-                            date_yyyymmdd, job.race_no, reason, gate_state
+                    buy_text = None
+                elif buy_text and ops_dec.observe_notes:
+                    buy_text = annotate_message_with_notes(
+                        buy_text, ops_dec.observe_notes
+                    )
+
+                if buy_text:
+                    if line_paused:
+                        buy_deliveries: List = []
+                    else:
+                        buy_deliveries = _send_member_only_line(buy_text)
+                    if line_paused:
+                        log_watch(
+                            date_yyyymmdd,
+                            line_notify_pause_log_line("s_plus_buy"),
                         )
-                        resp = send_line_message(skip_msg)
-                        if resp.status_code != 200:
-                            raise RuntimeError(
-                                f"admin upset-high pause failed: "
-                                f"{resp.status_code} {resp.text}"
-                            )
                         _send_discord_safe(
                             date_yyyymmdd,
-                            skip_msg,
-                            category="p6_pause",
+                            buy_text,
+                            category="s_plus_buy",
                         )
-                        gate_state.pause_notified_date = date_yyyymmdd
+                        register_s_plus_payback_target(
+                            date_yyyymmdd,
+                            race_id=job.race_id,
+                            race_no=job.race_no,
+                            race_name=race_name,
+                            post_time=post_time,
+                        )
+                        log_watch(
+                            date_yyyymmdd,
+                            f"S+ buy Discord only (LINE paused) R{job.race_no} {job.race_id}",
+                        )
+                    elif not buy_deliveries:
+                        log_watch(
+                            date_yyyymmdd,
+                            f"WARN S+ buy skipped R{job.race_no} "
+                            "(LINE_TEAM_USER_IDS empty)",
+                        )
+                    else:
+                        for rec in buy_deliveries:
+                            log_watch(date_yyyymmdd, format_line_delivery_log(rec))
+                        _send_discord_safe(
+                            date_yyyymmdd,
+                            buy_text,
+                            category="s_plus_buy",
+                        )
+                        register_s_plus_payback_target(
+                            date_yyyymmdd,
+                            race_id=job.race_id,
+                            race_no=job.race_no,
+                            race_name=race_name,
+                            post_time=post_time,
+                        )
+                        log_watch(
+                            date_yyyymmdd,
+                            f"LINE S+ buy sent R{job.race_no} {job.race_id}",
+                        )
+                upset_text = build_upset_high_admin_line_message(
+                    date_yyyymmdd, job.race_no, plan
+                )
+                if upset_text and not ops_dec.allow_p6:
                     log_watch(
                         date_yyyymmdd,
-                        f"LINE upset-high skipped R{job.race_no} ({reason})",
+                        f"OPS_GATE P6 buy blocked R{job.race_no} "
+                        f"({', '.join(ops_dec.skip_reasons) or 'blocked'})",
                     )
-            save_state(gate_state)
-            mark_race_notified(date_yyyymmdd, job.race_id)
-            sent.append(job.race_id)
-            log_watch(
-                date_yyyymmdd,
-                f"LINE post sent R{job.race_no} {job.race_id} post={post_time}",
-            )
-        except NetkeibaBlockedError:
-            raise
-        except Exception as exc:
-            msg = f"R{job.race_no} LINE post failed: {exc}"
+                    upset_text = None
+                elif upset_text and ops_dec.observe_notes:
+                    upset_text = annotate_message_with_notes(
+                        upset_text, ops_dec.observe_notes
+                    )
+                if upset_text:
+                    ok, reason = should_send_upset_high_buy(
+                        gate_state, date_yyyymmdd, master=master, plan=plan
+                    )
+                    if ok:
+                        if line_paused:
+                            log_watch(
+                                date_yyyymmdd,
+                                line_notify_pause_log_line("p6_buy"),
+                            )
+                        else:
+                            resp = send_line_message(upset_text)
+                            if resp.status_code != 200:
+                                raise RuntimeError(
+                                    f"admin upset-high push failed: {resp.status_code} {resp.text}"
+                                )
+                        _send_discord_safe(
+                            date_yyyymmdd,
+                            upset_text,
+                            category="p6_buy",
+                        )
+                        invest = 0
+                        if plan and plan.sanrenpuku_formation:
+                            invest = plan.sanrenpuku_formation.points * BET_UNIT
+                        record_signaled_bet(
+                            gate_state, date_yyyymmdd, job.race_no, invest
+                        )
+                        register_p6_payback_target(
+                            date_yyyymmdd,
+                            race_id=job.race_id,
+                            race_no=job.race_no,
+                            race_name=race_name,
+                            post_time=post_time,
+                        )
+                        log_watch(
+                            date_yyyymmdd,
+                            f"LINE P6 buy sent R{job.race_no} {job.race_id}",
+                        )
+                    else:
+                        if gate_state.pause_notified_date != date_yyyymmdd:
+                            skip_msg = build_pause_skip_message(
+                                date_yyyymmdd, job.race_no, reason, gate_state
+                            )
+                            if line_paused:
+                                log_watch(
+                                    date_yyyymmdd,
+                                    line_notify_pause_log_line("p6_pause"),
+                                )
+                            else:
+                                resp = send_line_message(skip_msg)
+                                if resp.status_code != 200:
+                                    raise RuntimeError(
+                                        f"admin upset-high pause failed: "
+                                        f"{resp.status_code} {resp.text}"
+                                    )
+                            _send_discord_safe(
+                                date_yyyymmdd,
+                                skip_msg,
+                                category="p6_pause",
+                            )
+                            gate_state.pause_notified_date = date_yyyymmdd
+                        log_watch(
+                            date_yyyymmdd,
+                            f"LINE upset-high skipped R{job.race_no} ({reason})",
+                        )
+                save_state(gate_state)
+                mark_race_notified(date_yyyymmdd, job.race_id)
+                sent.append(job.race_id)
+                if line_paused:
+                    log_watch(
+                        date_yyyymmdd,
+                        f"notify sent R{job.race_no} {job.race_id} "
+                        f"Discord only (LINE paused) post={post_time}",
+                    )
+                else:
+                    log_watch(
+                        date_yyyymmdd,
+                        f"LINE post sent R{job.race_no} {job.race_id} post={post_time}",
+                    )
+                last_exc = None
+                break
+            except NetkeibaBlockedError:
+                raise
+            except Exception as exc:
+                last_exc = exc
+                if (
+                    is_transient_network_error(exc)
+                    and attempt + 1 < LINE_NOTIFY_INLINE_ATTEMPTS
+                ):
+                    delay = LINE_NOTIFY_INLINE_BACKOFF_SEC[
+                        min(attempt, len(LINE_NOTIFY_INLINE_BACKOFF_SEC) - 1)
+                    ]
+                    log_watch(
+                        date_yyyymmdd,
+                        f"WARN R{job.race_no} notify retry "
+                        f"{attempt + 1}/{LINE_NOTIFY_INLINE_ATTEMPTS} "
+                        f"in {delay:.0f}s: {exc}",
+                    )
+                    time.sleep(delay)
+                    continue
+                break
+        if last_exc is not None:
+            msg = f"R{job.race_no} LINE post failed: {last_exc}"
             log_watch(date_yyyymmdd, f"WARN {msg}")
             send_alert(
-                f"R{job.race_no} \u6295\u7a3f\u6587 LINE \u9001\u4fe1\u5931\u6557\n{exc}",
+                f"R{job.race_no} \u6295\u7a3f\u6587 LINE \u9001\u4fe1\u5931\u6557\n{last_exc}",
                 date_yyyymmdd=date_yyyymmdd,
                 alert_key=f"line_post_fail_{date_yyyymmdd}_{job.race_id}",
                 cooldown_minutes=15,
@@ -754,16 +923,22 @@ def process_due_s_plus_payback_notifications(
                 race_name=race_name,
                 evaluation=evaluation,
             )
-            deliveries = _send_member_only_line(msg)
-            if not deliveries:
-                log_watch(
-                    date_yyyymmdd,
-                    f"WARN S+ payback skipped R{rno} {rid} "
-                    "(LINE_TEAM_USER_IDS empty)",
-                )
-                continue
-            for out in deliveries:
-                log_watch(date_yyyymmdd, format_line_delivery_log(out))
+            from tools.line_bot import is_line_notify_paused, line_notify_pause_log_line
+
+            line_paused = is_line_notify_paused()
+            if line_paused:
+                log_watch(date_yyyymmdd, line_notify_pause_log_line("s_plus_payback"))
+            else:
+                deliveries = _send_member_only_line(msg)
+                if not deliveries:
+                    log_watch(
+                        date_yyyymmdd,
+                        f"WARN S+ payback skipped R{rno} {rid} "
+                        "(LINE_TEAM_USER_IDS empty)",
+                    )
+                    continue
+                for out in deliveries:
+                    log_watch(date_yyyymmdd, format_line_delivery_log(out))
             _send_discord_safe(
                 date_yyyymmdd,
                 msg,
@@ -854,11 +1029,16 @@ def process_due_p6_payback_notifications(
                 race_name=race_name,
                 evaluation=evaluation,
             )
-            resp = send_line_message(msg)
-            if resp.status_code != 200:
-                raise RuntimeError(
-                    f"P6 payback push failed: {resp.status_code} {resp.text}"
-                )
+            from tools.line_bot import is_line_notify_paused, line_notify_pause_log_line
+
+            if is_line_notify_paused():
+                log_watch(date_yyyymmdd, line_notify_pause_log_line("p6_payback"))
+            else:
+                resp = send_line_message(msg)
+                if resp.status_code != 200:
+                    raise RuntimeError(
+                        f"P6 payback push failed: {resp.status_code} {resp.text}"
+                    )
             _send_discord_safe(
                 date_yyyymmdd,
                 msg,
@@ -1091,14 +1271,20 @@ def notify_watch_started(date_yyyymmdd: str, schedule: dict, *, line_notify: boo
     write_heartbeat(date_yyyymmdd, status="started", extra={"race_count": n})
     if line_notify:
         msg = build_watch_start_line_message(date_yyyymmdd, schedule)
-        sent = send_team_broadcast(
-            msg,
-            date_yyyymmdd=date_yyyymmdd,
-            alert_key=f"watch_start_{date_yyyymmdd}",
-            cooldown_minutes=60 * 12,
-        )
-        if not sent:
-            log_watch(date_yyyymmdd, "watch start LINE skipped (cooldown)")
+        try:
+            sent = send_team_broadcast(
+                msg,
+                date_yyyymmdd=date_yyyymmdd,
+                alert_key=f"watch_start_{date_yyyymmdd}",
+                cooldown_minutes=60 * 12,
+            )
+            if not sent:
+                log_watch(date_yyyymmdd, "watch start LINE skipped (cooldown)")
+        except Exception as exc:
+            log_watch(
+                date_yyyymmdd,
+                f"WARN watch start broadcast failed (watch continues): {exc}",
+            )
 
 
 def notify_watch_finished(date_yyyymmdd: str, schedule: dict, *, line_notify: bool) -> None:
@@ -1184,8 +1370,24 @@ def watch_race_day(
             )
             payback_wake_at = next_s_plus_payback_wake(date_yyyymmdd)
             p6_wake_at = next_p6_payback_wake(date_yyyymmdd)
+            retry_wake_at = (
+                next_line_notify_retry_wake(
+                    date_yyyymmdd,
+                    schedule,
+                    notify_offset=notify_offset,
+                )
+                if line_notify
+                else None
+            )
             wake_candidates = [
-                w for w in (snap_wake_at, payback_wake_at, p6_wake_at) if w is not None
+                w
+                for w in (
+                    snap_wake_at,
+                    payback_wake_at,
+                    p6_wake_at,
+                    retry_wake_at,
+                )
+                if w is not None
             ]
             wake_at = min(wake_candidates) if wake_candidates else None
             if wake_at is None:
@@ -1204,6 +1406,11 @@ def watch_race_day(
                 f"next wake {wake_at.strftime('%H:%M:%S')} (sleep {sleep_sec:.0f}s)",
             )
             if sleep_sec > 0:
+                if retry_wake_at is not None and wake_at == retry_wake_at:
+                    log_watch(
+                        date_yyyymmdd,
+                        f"pending T-10 retry wake in {sleep_sec:.0f}s",
+                    )
                 time.sleep(sleep_sec)
     except NetkeibaBlockedError as exc:
         log_watch(date_yyyymmdd, f"FATAL netkeiba blocked: {exc}")

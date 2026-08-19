@@ -1,0 +1,3 @@
+ex_h,label,n_races,win_bets,win_hit_rate,win_roi_pct,place_bets,place_roi_pct,sanren_bets,sanren_hit_rate,sanren_roi_pct,sanrentan_bets,sanrentan_hit_rate,sanrentan_roi_pct,wide_bets,wide_roi_pct,win_ken_share,exotic_ken_share,exotic_high_share
+high,high,157,108,0.5,83.42592592592592,108,82.5,157,0.4140127388535032,71.72031076581577,116,0.13793103448275862,101.31465517241381,157,82.46913580246914,0.6878980891719745,0.7388535031847133,1
+normal,normal,22,9,0.6666666666666666,141.11111111111111,9,117.77777777777779,0,NA,NA,0,NA,NA,0,NA,0.4090909090909091,0.18181818181818182,0

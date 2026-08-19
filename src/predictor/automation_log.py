@@ -138,6 +138,19 @@ def send_alert(
         log_run_today(date_yyyymmdd, f"ALERT sent: {message}")
     elif date_yyyymmdd and log_channel == "watch":
         log_watch(date_yyyymmdd, f"ALERT sent: {message}")
+
+    # Background local diagnosis for watch/heartbeat style alerts.
+    try:
+        from src.predictor.alert_auto_diagnose import schedule_auto_diagnose
+
+        if date_yyyymmdd:
+            schedule_auto_diagnose(
+                date_yyyymmdd,
+                alert_key=key,
+                alert_message=message,
+            )
+    except Exception:
+        pass
     return True
 
 

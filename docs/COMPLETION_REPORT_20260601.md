@@ -1,7 +1,7 @@
 ﻿# 会社PC作業 完了報告（2026-06-01）
 
-GitHub: https://github.com/gurashiroozisan/sonoda-keiba-program
-Commit: ca8a241 (main)
+GitHub: https://github.com/AlphaScript-kyoto/sonoda-keiba-program
+Commit: ca8a241（当時の main。リポジトリ移転後の履歴とは別）
 
 ## 完了
 - 脚質キャッシュ 3756件

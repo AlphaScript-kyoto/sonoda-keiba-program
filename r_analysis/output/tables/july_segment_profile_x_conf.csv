@@ -1,0 +1,5 @@
+exotic_profile,ex_h,label,n_races,win_bets,win_hit_rate,win_roi_pct,place_bets,place_roi_pct,sanren_bets,sanren_hit_rate,sanren_roi_pct,sanrentan_bets,sanrentan_hit_rate,sanrentan_roi_pct,wide_bets,wide_roi_pct,win_ken_share,exotic_ken_share,exotic_high_share
+堅,high,堅|high,116,107,0.4953271028037383,81.58878504672897,107,82.05607476635514,116,0.45689655172413796,69.45402298850574,116,0.13793103448275862,101.31465517241381,116,73.22695035460993,0.9224137931034483,1,1
+堅,normal,堅|normal,4,4,0.75,142.5,4,122.50000000000001,0,NA,NA,0,NA,NA,0,NA,1,1,0
+荒,high,荒|high,41,1,1,280,1,130,41,0.2926829268292683,79.41463414634147,0,NA,NA,41,103.65853658536585,0.024390243902439025,0,1
+荒,normal,荒|normal,18,5,0.6,140,5,113.99999999999999,0,NA,NA,0,NA,NA,0,NA,0.2777777777777778,0,0
